@@ -1,0 +1,7 @@
+# Hardhat coverage reports
+/coverage
+node_modules/
+artifacts/
+cache/
+.env
+.DS_Store
