@@ -166,13 +166,12 @@ async function fundAndApprove(amount: bigint = AMOUNT) {
     });
 }
 
-
 async function createEscrow(amount: bigint = AMOUNT, maturityDays: bigint = 0n) {
     await sellerClient.writeContract({
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'createEscrow',
-        args: [tokenAddress, buyer.address, amount, maturityDays, "Escrow title", "QmHash"],
+        args: [tokenAddress, buyer.address, amount, maturityDays, owner.address, "Escrow title", "QmHash"],
         chain: CHAIN,
         account: seller
     });
@@ -255,6 +254,99 @@ async function increaseTime(seconds: number) {
     await publicClient.transport.request({ method: 'evm_increaseTime', params: [seconds] });
     await publicClient.transport.request({ method: 'evm_mine', params: [] });
 }
+
+test('previewFees() correctly tracks protocol fees before and after withdrawFees', async () => {
+    // 1) Initially: no fees, no LP → previewFees returns 0
+    let preview = await publicClient.readContract({
+        address: escrowAddress,
+        abi: escrowAbi,
+        functionName: 'previewFees',
+        args: [tokenAddress],
+    }) as bigint;
+
+    assert.equal(preview, 0n, 'previewFees should be 0 when no fees accrued');
+
+    // 2) Complete one deal → 1% fee accrues, owner gets LP, previewFees > 0
+    const id = await setupDeal();
+
+    await buyerClient.writeContract({
+        address: escrowAddress,
+        abi: escrowAbi,
+        functionName: 'deposit',
+        args: [id],
+    });
+
+    await buyerClient.writeContract({
+        address: escrowAddress,
+        abi: escrowAbi,
+        functionName: 'confirmDelivery',
+        args: [id],
+    });
+
+    const lpBalance = await publicClient.readContract({
+        address: lpAddress,
+        abi: lpAbi,
+        functionName: 'balanceOf',
+        args: [owner.address],
+    }) as bigint;
+
+    const totalSupply = await publicClient.readContract({
+        address: lpAddress,
+        abi: lpAbi,
+        functionName: 'totalSupply',
+        args: [],
+    }) as bigint;
+
+    const accrued = await publicClient.readContract({
+        address: escrowAddress,
+        abi: escrowAbi,
+        functionName: 'feePool',
+        args: [tokenAddress],
+    }) as bigint;
+
+    assert(lpBalance > 0n, 'Owner should have LP after fee accrual');
+    assert(accrued > 0n, 'feePool should have accrued fees');
+
+    const expectedClaimable = (lpBalance * accrued) / totalSupply;
+
+    preview = await publicClient.readContract({
+        address: escrowAddress,
+        abi: escrowAbi,
+        functionName: 'previewFees',
+        args: [tokenAddress],
+    }) as bigint;
+
+    assert.equal(
+        preview,
+        expectedClaimable,
+        'previewFees should match proportional share of feePool for owner LP',
+    );
+
+    // 3) After withdrawFees: LP burned, feePool reduced, previewFees should be 0 (owner has no LP)
+    await ownerClient.writeContract({
+        address: escrowAddress,
+        abi: escrowAbi,
+        functionName: 'withdrawFees',
+        args: [tokenAddress],
+    });
+
+    const lpAfter = await publicClient.readContract({
+        address: lpAddress,
+        abi: lpAbi,
+        functionName: 'balanceOf',
+        args: [owner.address],
+    }) as bigint;
+
+    preview = await publicClient.readContract({
+        address: escrowAddress,
+        abi: escrowAbi,
+        functionName: 'previewFees',
+        args: [tokenAddress],
+    }) as bigint;
+
+    assert.equal(lpAfter, 0n, 'Owner LP should be 0 after withdrawFees burns all LP');
+    assert.equal(preview, 0n, 'previewFees should be 0 after fees claimed and LP burned');
+});
 
 
 // --------- Core Tests (contract state and withdrawal) ---------
@@ -600,11 +692,11 @@ test('protocol fee withdraw reverts if already claimed', async () => {
 
     // Withdraw once
     await ownerClient.writeContract({
-        address: escrowAddress, abi: escrowAbi, functionName: 'withdrawAllFees', args: []
+        address: escrowAddress, abi: escrowAbi, functionName: 'withdrawFees', args: [tokenAddress]
     });
     // LP is now zero; second withdraw fails
     await assert.rejects(
-        async () => await ownerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'withdrawAllFees', args: [] }),
+        async () => await ownerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'withdrawFees', args: [tokenAddress] }),
         "Second protocol fee withdrawal should revert"
     );
 });
@@ -678,8 +770,6 @@ test('meta transaction: signature replay is blocked by nonce', async () => {
 });
 
 
-
-
 test('seller withdraw reverts on double claim', async () => {
     const id = await setupDeal();
     await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'deposit', args: [id] });
@@ -722,8 +812,8 @@ test('protocol owner can withdraw all protocol fees (withdrawAllFees)', async ()
     await ownerClient.writeContract({
         address: escrowAddress,
         abi: escrowAbi,
-        functionName: 'withdrawAllFees',
-        args: []
+        functionName: 'withdrawFees',
+        args: [tokenAddress]
     });
 
     // Check owner LP token balance after fee withdrawal
@@ -1039,6 +1129,7 @@ test('meta-tx: requestCancelSigned allows relayed cancel request by buyer signat
         'Buyer cancel request should be recorded after requestCancelSigned',
     );
 });
+
 
 
 
