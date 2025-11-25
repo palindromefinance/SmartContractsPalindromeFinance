@@ -42,7 +42,6 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
     mapping(uint256 _disputeId => uint256 _status) public disputeStatus;
     mapping(address token => mapping(address user => uint256 amount)) public withdrawable;
     mapping(address => uint256) public feePool;   
-    address[] public protocolTokens; 
 
 
     error InvalidMessageRoleForDispute();
@@ -119,49 +118,86 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         lpToken = PalindromeEscrowLP(_lpToken);
         require(initialAllowedToken != address(0), "Token cannot be zero");
         allowedTokens[initialAllowedToken] = true;
-        protocolTokens.push(initialAllowedToken);
         emit TokenAllowed(initialAllowedToken, true);
     }
 
+    /// @notice Enables or disables a token for use in escrow deals
+    /// @dev Only the contract owner can call this. Disabling a token prevents new escrows but does not affect existing ones.
+    ///      Emits a {TokenAllowed} event for off-chain indexing.
+    /// @param token The ERC20 token address to allow or disallow
+    /// @param allowed Set to true to allow the token, false to disallow it
+    function setAllowedToken(address token, bool allowed) external onlyOwner {
+        require(token != address(0), "Token: zero address");
+        require(IERC20(token).totalSupply() >= 0, "Token: not a contract"); // cheap ERC20 check (reverts on non-contract)
+        allowedTokens[token] = allowed;
+        emit TokenAllowed(token, allowed);
+    }
+
+    /// @notice Returns how many fees (in the given token) the owner can currently claim by burning their LP tokens
+    /// @dev This is a view function – it does not cost gas and is used by the frontend/dashboard
+    ///      Returns 0 if no LP tokens or no fees accrued
+    /// @param token The ERC20 token to check claimable fees for
+    /// @return claimable Amount of `token` the owner can withdraw right now
+    function previewFees(address token) external view returns (uint256 claimable) {
+        uint256 lpBalance = lpToken.balanceOf(owner());
+        uint256 totalSupply = lpToken.totalSupply();
+
+        // Avoid division by zero + early return if owner has no LP
+        if (lpBalance == 0 || totalSupply == 0) {
+            return 0;
+        }
+
+        uint256 accrued = feePool[token];
+
+        // Safe math: mulDiv style (rounds down – fair to protocol)
+        claimable = (lpBalance * accrued) / totalSupply;
+    }
+
     /**
-       @notice Any user may create an escrow as seller. Access is intentionally 
-     * @dev Creates a new escrow deal with the specified parameters.
-     * @param token The address of the token to be used in the escrow.
-     * @param buyer The address of the buyer in the escrow.
-     * @param amount The amount of tokens involved in the escrow.
-     * @param maturityTimeDays The number of days until the escrow matures.
-     * @param title A title for the escrow deal.
-     * @param ipfsHash An IPFS hash for additional metadata.
-     * @return The ID of the newly created escrow.
-     */
+    * @notice Creates a new escrow deal
+    * @param token The ERC20 token for the escrow
+    * @param buyer Address of the buyer
+    * @param amount Amount of tokens to escrow
+    * @param maturityTimeDays Number of days until auto-release is allowed
+    * @param arbiter Optional arbiter address (use address(0) for default = contract owner)
+    * @param title Deal title (for frontend)
+    * @param ipfsHash Additional metadata on IPFS
+    * @return escrowId The newly created escrow ID
+    */
     function createEscrow(
         address token,
         address buyer,
         uint256 amount,
         uint256 maturityTimeDays,
+        address arbiter,
         string calldata title,
         string calldata ipfsHash
     ) external returns (uint256) {
         require(token != address(0), "Token cannot be zero address");
-        require(allowedTokens[token], "Token is not whitelisted/allowed");
+        require(allowedTokens[token], "Token not allowed");
         require(buyer != address(0), "Buyer cannot be zero address");
-        require(buyer != msg.sender, "Buyer and seller same");
-        require(maturityTimeDays < 3651, "Maturity exceeds 3650 days");
-        require(amount != 0, "Amount not greater zero");
+        require(buyer != msg.sender, "Buyer and seller cannot be same");
+        require(amount > 0, "Amount must be > 0");
+        require(maturityTimeDays < 3651, "Max 10 years");
 
-        uint256 escrowId = nextEscrowId; // cache in memory/stack
-        escrowId = nextEscrowId;
+        if (
+            arbiter == address(0) || 
+            arbiter == msg.sender || 
+            arbiter == buyer
+        ) {
+            arbiter = owner();
+        }
+
+        uint256 escrowId = nextEscrowId++;
+        
         EscrowDeal storage deal = escrows[escrowId];
         deal.token = token;
         deal.buyer = buyer;
         deal.seller = msg.sender;
-        deal.arbiter = owner();
+        deal.arbiter = arbiter;
         deal.amount = amount;
-        deal.depositTime = 0;
-        deal.maturityTime = maturityTimeDays;
+        deal.maturityTime = block.timestamp + (maturityTimeDays * 1 days); // ← fixed: store absolute timestamp
         deal.state = State.AWAITING_PAYMENT;
-        deal.buyerCancelRequested = false;
-        deal.sellerCancelRequested = false;
         deal.nonce = 0;
 
         emit EscrowCreated(
@@ -170,16 +206,16 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
             msg.sender,
             token,
             amount,
-            owner(),
-            maturityTimeDays,
+            arbiter,
+            maturityTimeDays,  // keep days for event readability
             title,
             ipfsHash
         );
-        nextEscrowId = escrowId + 1; 
+
         return escrowId;
     }
 
-    /**
+    /*
     * @notice Handles escrow payout with protocol fee accrual and LP minting.
     * @dev Protocol fee is added to feePool, LP tokens are minted to the owner.
     * @param token Token address paid.
@@ -187,16 +223,32 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
     * @param amount Gross payout amount.
     * @return fee Protocol fee accrued.
     */
-    function _escrowPayoutWithFee(address token, address recipient, uint256 amount) internal returns (uint256 fee) {
-        require(recipient != address(0), "Recipient address cannot be zero");
-        fee = (amount * _FEE_BPS) / 10000;
-        uint256 payout = amount - fee;
-        require(amount != 0, "Amount must be greater than zero");
-        withdrawable[token][recipient] += payout;
-        feePool[token] += fee;
-        lpToken.mint(owner(), fee);
-        emit PayoutWithFee(token, recipient, amount, fee);
+    function _escrowPayout(
+        address token,
+        address recipient,
+        uint256 amount,
+        bool applyFee
+    ) internal returns (uint256 feeTaken) {
+        require(recipient != address(0), "Recipient zero");
+        require(amount > 0, "Amount zero");
+
+        if (applyFee && _FEE_BPS > 0) {
+            feeTaken = (amount * _FEE_BPS) / 10000;
+            uint256 payout = amount - feeTaken;
+
+            withdrawable[token][recipient] += payout;
+            feePool[token] += feeTaken;
+            lpToken.mint(owner(), feeTaken); // LP represents claim on fees
+
+            emit PayoutWithFee(token, recipient, amount, feeTaken);
+        } else {
+            // No fee — full amount goes to recipient
+            withdrawable[token][recipient] += amount;
+            feeTaken = 0;
+            emit PayoutWithFee(token, recipient, amount, 0);
+        }
     }
+
 
     /**
      * @notice Allows the buyer or seller to withdraw their funds from the escrow.
@@ -234,27 +286,35 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         emit Withdrawn(deal.token, msg.sender, amount);
     }
 
-    /**
-    * @notice Owner claims all protocol fees by burning their LP tokens.
-    * @dev Automatically calculates and burns the owner's full LP balance, distributing all accrued protocol fees to owner.
-    */
-    function withdrawAllFees() external nonReentrant onlyOwner {
-        uint256 lpBurnAmount = lpToken.balanceOf(owner());
-        require(lpBurnAmount > 0, "No LP tokens to burn");
-        uint256 lpSupply = lpToken.totalSupply();
+    /// @notice Owner claims their share of fees for a specific token by burning LP tokens
+    /// @dev Proportional claim based on LP ownership. Burn happens FIRST for security.
+    /// @param token The ERC20 token to claim fees for (must be whitelisted)
+    function withdrawFees(address token) external nonReentrant onlyOwner {
+        require(allowedTokens[token], "Token not supported"); // or have a separate feeTokens set
 
-        for (uint256 i = 0; i < protocolTokens.length; i++) {
-            address token = protocolTokens[i];
-            uint256 poolFee = feePool[token];
-            uint256 payout = (lpBurnAmount * poolFee) / lpSupply;
-            if (payout > 0) {
-                IERC20(token).safeTransfer(owner(), payout);
-                feePool[token] -= payout;
-                emit FeeWithdrawn(token, owner(), payout);
-            }
+        uint256 lpToBurn = lpToken.balanceOf(owner());
+        require(lpToBurn > 0, "No LP to burn");
+
+        uint256 totalSupply = lpToken.totalSupply();
+        uint256 accrued = feePool[token];
+
+        if (accrued == 0) {
+            lpToken.burn(owner(), lpToBurn);
+            emit FeeWithdrawnAll(owner(), lpToBurn);
+            return;
         }
-        lpToken.burn(owner(), lpBurnAmount);
-        emit FeeWithdrawnAll(owner(), lpBurnAmount);
+
+        lpToken.burn(owner(), lpToBurn);
+
+        uint256 claimAmount = (lpToBurn * accrued) / totalSupply;
+
+        if (claimAmount > 0) {
+            feePool[token] = accrued - claimAmount;
+            IERC20(token).safeTransfer(owner(), claimAmount);
+            emit FeeWithdrawn(token, owner(), claimAmount);
+        }
+
+        emit FeeWithdrawnAll(owner(), lpToBurn);
     }
 
     /**
@@ -301,11 +361,10 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
     function confirmDelivery(uint256 escrowId) external nonReentrant onlyBuyer(escrowId) {
         EscrowDeal storage deal = escrows[escrowId];
         require(deal.state == State.AWAITING_DELIVERY, "Not AWAITING_DELIVERY");
-        uint256 fee = _escrowPayoutWithFee(deal.token, deal.seller, deal.amount);
+        uint256 fee = _escrowPayout(deal.token, deal.seller, deal.amount, true);
         deal.state = State.COMPLETE;
         emit DeliveryConfirmed(escrowId, deal.buyer, deal.seller, deal.amount, fee);
     }
-
 
     /**
      * @notice Automatically releases the escrow funds to the seller if the maturity time has been reached.
@@ -321,14 +380,16 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
     function autoRelease(uint256 escrowId) external nonReentrant onlySeller(escrowId) {
         EscrowDeal storage deal = escrows[escrowId];
         require(deal.state == State.AWAITING_DELIVERY, "Not AWAITING_DELIVERY");
-        require(deal.depositTime != 0, "Deposit time not set");
-        require(deal.maturityTime != 0, "Maturity not configured");
-        require(block.timestamp > deal.depositTime + (deal.maturityTime * 1 days), "Maturity time not yet reached");
-        uint256 fee = _escrowPayoutWithFee(deal.token, deal.seller, deal.amount);
+        require(deal.depositTime != 0, "No deposit yet");
+        
+        // Now maturityTime is the absolute deadline timestamp
+        require(block.timestamp > deal.maturityTime, "Maturity time not reached");
+
+        uint256 fee = _escrowPayout(deal.token, deal.seller, deal.amount, true);
         deal.state = State.COMPLETE;
+
         emit AutoReleased(escrowId, deal.seller, deal.amount, fee);
     }
-
 
     /**
      * @notice Allows the buyer or seller to request the cancellation of an escrow if both parties agree.
@@ -344,12 +405,10 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         emit RequestCancel(escrowId, msg.sender);
         /// @notice Handles the cancellation of a deal when both buyer and seller have requested it
         /// @dev Calculates the fee and updates the deal state to CANCELED
-        if (deal.buyerCancelRequested) {
-            if (deal.sellerCancelRequested) {
-                uint256 fee = _escrowPayoutWithFee(deal.token, deal.buyer, deal.amount);
-                deal.state = State.CANCELED;
-                emit Canceled(escrowId, msg.sender, deal.amount, fee);
-            }
+        if (deal.buyerCancelRequested && deal.sellerCancelRequested) {
+            _escrowPayout(deal.token, deal.buyer, deal.amount, false);
+            deal.state = State.CANCELED;
+            emit Canceled(escrowId, msg.sender, deal.amount, 0);
         }
     }
 
@@ -371,13 +430,13 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         require(deal.buyerCancelRequested, "Buyer must request cancellation");
         require(!deal.sellerCancelRequested, "Mutual cancel already processed");
         require(deal.depositTime != 0, "Deposit not made");
-        require(deal.maturityTime != 0, "No maturity set for time-based cancel");
-        require(block.timestamp > deal.depositTime + (deal.maturityTime * 1 days), "Maturity period not reached");
-        uint256 fee = _escrowPayoutWithFee(deal.token, deal.buyer, deal.amount);
-        deal.state = State.CANCELED;
-        emit Canceled(escrowId, msg.sender, deal.amount, fee);
-    }
+        require(block.timestamp > deal.maturityTime, "Maturity period not reached");
 
+        _escrowPayout(deal.token, deal.buyer, deal.amount, false);
+        deal.state = State.CANCELED;
+
+        emit Canceled(escrowId, msg.sender, deal.amount, 0);
+    }
 
     /**
      * @notice Initiates a dispute for the specified escrow deal if it is in the delivery phase.
@@ -446,7 +505,8 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         require(deal.state == State.DISPUTED, "Not DISPUTED");
         require(resolution == State.COMPLETE || resolution == State.REFUNDED, "Invalid resolution");
         address target = resolution == State.COMPLETE ? deal.seller : deal.buyer;
-        uint256 fee = _escrowPayoutWithFee(deal.token, target, deal.amount);
+        bool applyFee = (resolution == State.COMPLETE); // only if seller wins
+        uint256 fee = _escrowPayout(deal.token, target, deal.amount, applyFee);
         delete disputeStatus[escrowId];
         deal.state = resolution;
         emit DisputeResolved(escrowId, resolution, msg.sender, deal.amount, fee);
@@ -492,7 +552,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         address signer = ECDSA.recover(hash.toEthSignedMessageHash(), signature);
         require(signer == deal.buyer, "Invalid buyer signature");
         deal.nonce++;
-        uint256 fee = _escrowPayoutWithFee(deal.token, deal.seller, deal.amount);
+        uint256 fee = _escrowPayout(deal.token, deal.seller, deal.amount, true);
         deal.state = State.COMPLETE;
         emit DeliveryConfirmed(escrowId, deal.buyer, deal.seller, deal.amount, fee);
     }
@@ -548,7 +608,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         /// @dev Calculates the fee and updates the deal state to CANCELED.
         if (deal.buyerCancelRequested) {
             if (deal.sellerCancelRequested) {
-                uint256 fee = _escrowPayoutWithFee(deal.token, deal.buyer, deal.amount);
+                uint256 fee = _escrowPayout(deal.token, deal.buyer, deal.amount, false);
                 deal.state = State.CANCELED;
                 emit Canceled(escrowId, msg.sender, deal.amount, fee);
             }
@@ -576,7 +636,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         require(deadline > block.timestamp, "Deadline must be in the future");
         require(deadline < block.timestamp + MAX_SIGNATURE_WINDOW, "Deadline exceeds maximum window");
         EscrowDeal storage deal = escrows[escrowId];
-        require(deal.state == State.AWAITING_DELIVERY, "Not AWAITING_PAYMENT");
+        require(deal.state == State.AWAITING_DELIVERY, "Not AWAITING_DELIVERY");
         require(nonce == deal.nonce, "Nonce mismatch");
 
         bytes32 hash = keccak256(
@@ -641,7 +701,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         require(signer == deal.arbiter, "Signature does not match arbiter");
         deal.nonce++;
         address target = resolution == State.COMPLETE ? deal.seller : deal.buyer;
-        uint256 fee = _escrowPayoutWithFee(deal.token, target, deal.amount);
+        uint256 fee = _escrowPayout(deal.token, target, deal.amount, true);
         delete disputeStatus[escrowId];
         deal.state = resolution;
         emit DisputeResolved(escrowId, resolution, signer, deal.amount, fee);
