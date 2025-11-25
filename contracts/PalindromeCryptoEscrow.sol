@@ -15,7 +15,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
     using ECDSA for bytes32;
     using SafeERC20 for IERC20;
 
-    enum State { AWAITING_PAYMENT, AWAITING_DELIVERY, DISPUTED, COMPLETE, REFUNDED, CANCELED }
+    enum State { AWAITING_PAYMENT, AWAITING_DELIVERY, DISPUTED, COMPLETE, REFUNDED, CANCELED, WITHDRAWN }
     enum Role { None, Buyer, Seller, Arbiter }
 
     uint256 private constant _FEE_BPS = 100; //1%
@@ -109,7 +109,6 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         require(msg.sender == escrows[escrowId].arbiter, "Only arbiter allowed");
         _;
     }
-
 
     /**
     * @notice Initializes contract and sets initial allowed token.
@@ -209,11 +208,29 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
      */
     function withdraw(uint256 escrowId) external nonReentrant onlyBuyerorSeller(escrowId) {
         EscrowDeal storage deal = escrows[escrowId];
-        require(deal.state == State.CANCELED || deal.state == State.COMPLETE || deal.state == State.REFUNDED, "Withdrawals only allowed after escrow ends");
+
+        // Escrow must be finished
+        require(
+            deal.state == State.CANCELED ||
+            deal.state == State.COMPLETE ||
+            deal.state == State.REFUNDED,
+            "Withdrawals only allowed after escrow ends"
+        );
+
+        if (deal.state == State.COMPLETE) {
+            require(msg.sender == deal.seller, "Only seller can withdraw after completion");
+        } else if (deal.state == State.REFUNDED || deal.state == State.CANCELED) {
+            require(msg.sender == deal.buyer, "Only buyer can withdraw after refund/cancel");
+        }
+
         uint256 amount = withdrawable[deal.token][msg.sender];
         require(amount != 0, "Nothing to withdraw");
+
+        withdrawable[deal.token][msg.sender] = 0;
         IERC20(deal.token).safeTransfer(msg.sender, amount);
-        delete withdrawable[deal.token][msg.sender];
+
+        deal.state = State.WITHDRAWN;
+
         emit Withdrawn(deal.token, msg.sender, amount);
     }
 
@@ -336,7 +353,6 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         }
     }
 
-    
     /**
      * @notice Cancels the escrow by timeout if conditions are met.
      * @dev Cancels an escrow by timeout if the maturity period has been reached.
@@ -447,7 +463,6 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
      * It updates the escrow state to COMPLETE and processes the payout with a fee.
      * Emits a DeliveryConfirmed event upon successful confirmation.
      */
-
     function confirmDeliverySigned(
         uint256 escrowId,
         bytes calldata signature,
@@ -595,7 +610,6 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
      * @param signature The arbiter's signature for the resolution.
      * @param nonce The nonce to ensure the resolution is unique.
      */
-
     function resolveDisputeSigned(
         uint256 escrowId,
         bytes calldata signature,

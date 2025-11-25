@@ -44,6 +44,9 @@ const publicClient = createPublicClient({
     transport: http(BSCTESTNET_RPC_URL),
 });
 const deployerAccount = privateKeyToAccount(privateKey);
+console.log('----------------------')
+console.log(deployerAccount)
+console.log('----------------------')
 const deployerClient = createWalletClient({
     chain: bscTestnet,
     transport: http(BSCTESTNET_RPC_URL),
