@@ -94,8 +94,10 @@ const State = {
     DISPUTED: 2,
     COMPLETE: 3,
     REFUNDED: 4,
-    CANCELED: 5
+    CANCELED: 5,
+    WITHDRAWN: 6,
 } as const;
+
 
 
 
@@ -261,7 +263,6 @@ test('deposit and delivery flow with withdrawal', async () => {
     await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'deposit', args: [id] });
     await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'confirmDelivery', args: [id] });
 
-
     // Check seller's withdrawable
     let sellerWithdrawable = await publicClient.readContract({
         address: escrowAddress,
@@ -271,7 +272,6 @@ test('deposit and delivery flow with withdrawal', async () => {
     });
     assert(Number(sellerWithdrawable) > 0, "Seller should have withdrawable balance");
 
-
     // Seller withdraws
     await sellerClient.writeContract({
         address: escrowAddress,
@@ -279,6 +279,7 @@ test('deposit and delivery flow with withdrawal', async () => {
         functionName: 'withdraw',
         args: [id]
     });
+
     sellerWithdrawable = await publicClient.readContract({
         address: escrowAddress,
         abi: escrowAbi,
@@ -286,6 +287,9 @@ test('deposit and delivery flow with withdrawal', async () => {
         args: [tokenAddress, seller.address],
     });
     assert.equal(Number(sellerWithdrawable), 0, "Seller withdrawable should be zero after withdraw");
+
+    const deal = await getDeal(id);
+    assert.equal(deal[8], State.WITHDRAWN, "Escrow should be WITHDRAWN after seller withdraw");
 });
 
 
@@ -606,80 +610,74 @@ test('protocol fee withdraw reverts if already claimed', async () => {
 });
 
 
-test('meta transaction delivery allows seller withdraw', async () => {
-    /**
-        [
-        '0x5302E909d1e93e30F05B5D6Eea766363D14F9892', // 0: token
-        '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC', // 1: buyer
-        '0x70997970C51812dc3A010C7d01b50e0d17dc79C8', // 2: seller
-        '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266', // 3: arbiter
-        1000000n,                                     // 4: amount
-        1763298728n,                                  // 5: depositTime
-        0n,                                           // 6: maturityTime
-        0n,                                           // 7: nonce
-        1,                                            // 8: state
-        false,                                        // 9: buyerCancelRequested
-        false                                         // 10: sellerCancelRequested
-        ]
-     */
+test('meta transaction: signature replay is blocked by nonce', async () => {
     const id = await setupDeal();
-    await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'deposit', args: [id] });
+
+    // 1) Deposit -> AWAITING_DELIVERY
+    await buyerClient.writeContract({
+        address: escrowAddress,
+        abi: escrowAbi,
+        functionName: 'deposit',
+        args: [id],
+    });
 
     let deal = await getDeal(id);
+    assert.equal(
+        deal[8],
+        State.AWAITING_DELIVERY,
+        'Escrow should be AWAITING_DELIVERY after deposit',
+    );
 
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
-    const nonce = deal[7];           // nonce field in struct
-    const depositTime = deal[5];     // depositTime in struct
-    const sellerAddress = deal[2];   // seller address (hex string)
+    // 2) Build meta-tx hash for confirmDeliverySigned using on-chain time
+    const block = await publicClient.getBlock();
+    const currentTs = Number(block.timestamp);
+    const deadline = BigInt(currentTs + 3600); // 1 hour in future
 
+    const nonce = deal[7] as bigint;
+    const depositTime = deal[5] as bigint;
     const sender = buyer.address;
 
     const hash = buildMessageHash(
         chainId,
         escrowAddress,
         id,
-        sender,         // msg.sender of confirmDeliverySigned
+        sender,
         depositTime,
         deadline,
         nonce,
-        'confirmDelivery'
+        'confirmDelivery',
     );
+    const signature = await sign(buyerClient, sender, hash);
 
-    const signature = await sign(buyerClient, buyer.address, hash);
-
-    // Buyer calls confirmDeliverySigned
+    // 3) First call works – meta-tx accepted
     await buyerClient.writeContract({
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'confirmDeliverySigned',
-        args: [id, signature, deadline, nonce]
+        args: [id, signature, deadline, nonce],
     });
 
-    // Now, seller should be able to withdraw
-    let sellerWithdrawable = await publicClient.readContract({
-        address: escrowAddress,
-        abi: escrowAbi,
-        functionName: 'withdrawable',
-        args: [tokenAddress, sellerAddress]
-    });
-    assert(Number(sellerWithdrawable) > 0, "Seller should have withdrawable after meta-confirm");
+    deal = await getDeal(id);
+    assert.equal(
+        deal[8],
+        State.COMPLETE,
+        'Escrow should be COMPLETE after first meta-confirm',
+    );
 
-    await sellerClient.writeContract({
-        address: escrowAddress,
-        abi: escrowAbi,
-        functionName: 'withdraw',
-        args: [id]
-    });
-
-    sellerWithdrawable = await publicClient.readContract({
-        address: escrowAddress,
-        abi: escrowAbi,
-        functionName: 'withdrawable',
-        args: [tokenAddress, sellerAddress]
-    });
-    console.log("Seller withdrawable balance:", sellerWithdrawable);
-    assert.equal(Number(sellerWithdrawable), 0, "Seller withdrawable zero after claim");
+    // 4) Second call (replay) must revert — assert that it throws
+    await assert.rejects(
+        () =>
+            buyerClient.writeContract({
+                address: escrowAddress,
+                abi: escrowAbi,
+                functionName: 'confirmDeliverySigned',
+                args: [id, signature, deadline, nonce],
+            }),
+        // No message matcher: any revert is acceptable here
+    );
 });
+
+
 
 
 test('seller withdraw reverts on double claim', async () => {
@@ -818,47 +816,6 @@ test('meta transaction: deadline too early is rejected', async () => {
     );
 });
 
-test('meta transaction: signature replay is blocked by nonce', async () => {
-    const id = await setupDeal();
-    await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'deposit', args: [id] });
-    let deal = await getDeal(id);
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
-    const nonce = deal[7];
-    const depositTime = deal[5];
-    const sender = buyer.address;
-
-    const hash = buildMessageHash(
-        chainId,
-        escrowAddress,
-        id,
-        sender,
-        depositTime,
-        deadline,
-        nonce,
-        'confirmDelivery'
-    );
-    const signature = await sign(buyerClient, sender, hash);
-
-    // First call works
-    await buyerClient.writeContract({
-        address: escrowAddress,
-        abi: escrowAbi,
-        functionName: 'confirmDeliverySigned',
-        args: [id, signature, deadline, nonce]
-    });
-
-    // Second (replay) call fails as nonce is incremented
-    await assert.rejects(
-        async () => await buyerClient.writeContract({
-            address: escrowAddress,
-            abi: escrowAbi,
-            functionName: 'confirmDeliverySigned',
-            args: [id, signature, deadline, nonce]
-        }),
-        "Should revert on nonce replay"
-    );
-});
-
 test('only buyer or seller can withdraw', async () => {
     const id = await setupDeal();
     await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'deposit', args: [id] });
@@ -912,139 +869,175 @@ test('cannot start dispute after escrow is complete', async () => {
 
 test('meta-tx: startDisputeSigned allows relayed dispute by buyer signature', async () => {
     const id = await setupDeal();
-    await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'deposit', args: [id] });
+
+    // Deposit -> AWAITING_DELIVERY
+    await buyerClient.writeContract({
+        address: escrowAddress,
+        abi: escrowAbi,
+        functionName: 'deposit',
+        args: [id],
+    });
 
     let deal = await getDeal(id);
+    assert.equal(
+        deal[8],
+        State.AWAITING_DELIVERY,
+        'Escrow should be AWAITING_DELIVERY after deposit',
+    );
 
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
-    const nonce = deal[7];           // nonce field in struct
-    const depositTime = deal[5];     // depositTime in struct
+    const block = await publicClient.getBlock();
+    const currentTs = Number(block.timestamp);
+    const deadline = BigInt(currentTs + 3600); // 1h in future
 
-    const sender = buyer.address;
+    const nonce = deal[7] as bigint;
+    const depositTime = deal[5] as bigint;
+
+    const sender = buyer.address; // msg.sender in startDisputeSigned
 
     const hash = buildMessageHash(
         chainId,
         escrowAddress,
         id,
-        sender,         // msg.sender of confirmDeliverySigned
+        sender,
         depositTime,
         deadline,
         nonce,
-        'startDispute'
+        'startDispute',
     );
 
     const signature = await sign(buyerClient, sender, hash);
 
-    // Relayer (could be anyone) submits
+    // Relayer submits (can be buyer or anyone – here we just use buyer again)
     await buyerClient.writeContract({
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'startDisputeSigned',
-        args: [id, signature, deadline, nonce]
+        args: [id, signature, deadline, nonce],
     });
 
-    // Confirm state has changed to DISPUTED
     deal = await getDeal(id);
-    assert.equal(deal[8], State.DISPUTED, "Deal state should be DISPUTED after relayed startDisputeSigned");
+    assert.equal(
+        deal[8],
+        State.DISPUTED,
+        'Deal state should be DISPUTED after relayed startDisputeSigned',
+    );
 });
+
 
 test('meta-tx: resolveDisputeSigned allows relayed resolution by arbiter', async () => {
     const id = await setupDeal();
-    await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'deposit', args: [id] });
-    await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'startDispute', args: [id] });
+
+    // Deposit + startDispute -> DISPUTED
+    await buyerClient.writeContract({
+        address: escrowAddress,
+        abi: escrowAbi,
+        functionName: 'deposit',
+        args: [id],
+    });
+    await buyerClient.writeContract({
+        address: escrowAddress,
+        abi: escrowAbi,
+        functionName: 'startDispute',
+        args: [id],
+    });
 
     let deal = await getDeal(id);
+    assert.equal(deal[8], State.DISPUTED, 'Deal should be DISPUTED before signed resolve');
 
-    /**
-    [
-    '0x5302E909d1e93e30F05B5D6Eea766363D14F9892', // 0: token
-    '0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC', // 1: buyer
-    '0x70997970C51812dc3A010C7d01b50e0d17dc79C8', // 2: seller
-    '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266', // 3: arbiter
-    1000000n,                                     // 4: amount
-    1763298728n,                                  // 5: depositTime
-    0n,                                           // 6: maturityTime
-    0n,                                           // 7: nonce
-    1,                                            // 8: state
-    false,                                        // 9: buyerCancelRequested
-    false                                         // 10: sellerCancelRequested
-    ]
-    */
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
-    const nonce = deal[7];           // nonce field in struct
-    const depositTime = deal[5];     // depositTime in struct
-    const arbiterAddress = deal[3]
-    const ownerAddress = owner.address;
+    const block = await publicClient.getBlock();
+    const currentTs = Number(block.timestamp);
+    const deadline = BigInt(currentTs + 3600);
+
+    const nonce = deal[7] as bigint;
+    const depositTime = deal[5] as bigint;
+    const arbiterAddress = deal[3] as Address;
+
+    // Owner is arbiter in your contract
+    assert.equal(owner.address, arbiterAddress, 'Owner should be arbiter');
 
     const sender = arbiterAddress;
+    const outcome = State.COMPLETE; // or REFUNDED
 
     const hash = buildMessageHash(
         chainId,
         escrowAddress,
         id,
-        sender,         // msg.sender of confirmDeliverySigned
+        sender,
         depositTime,
         deadline,
         nonce,
-        'resolveDispute'
+        'resolveDispute',
     );
 
-    console.log("deal[3] arbiter:", deal[3]);
-    console.log("owner.address :", owner.address);
-    // Should be exactly equal (case, prefix, etc.)
-    assert.equal(owner.address, deal[3], "Owner should be arbiter in escrow");
-
-    // decide outcome (e.g. State.COMPLETE for seller, or State.REFUNDED for buyer)
-    const outcome = State.COMPLETE;
-
-    const signature = await sign(ownerClient, ownerAddress, hash);
+    const signature = await sign(ownerClient, owner.address, hash);
 
     await ownerClient.writeContract({
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'resolveDisputeSigned',
-        args: [id, signature, outcome, deadline, nonce]
+        args: [id, signature, outcome, deadline, nonce],
     });
 
-    // Confirm state
     deal = await getDeal(id);
-    assert.equal(deal[8], outcome, "Deal state should match outcome after resolveDisputeSigned");
+    assert.equal(
+        deal[8],
+        outcome,
+        'Deal state should match outcome after resolveDisputeSigned',
+    );
 });
+
 
 test('meta-tx: requestCancelSigned allows relayed cancel request by buyer signature', async () => {
     const id = await setupDeal();
-    await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'deposit', args: [id] });
+
+    await buyerClient.writeContract({
+        address: escrowAddress,
+        abi: escrowAbi,
+        functionName: 'deposit',
+        args: [id],
+    });
 
     let deal = await getDeal(id);
+    assert.equal(
+        deal[8],
+        State.AWAITING_DELIVERY,
+        'Escrow should be AWAITING_DELIVERY before cancel request',
+    );
 
-    const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
-    const nonce = deal[7];         // nonce field
-    const depositTime = deal[5];   // deposit time field
+    const block = await publicClient.getBlock();
+    const currentTs = Number(block.timestamp);
+    const deadline = BigInt(currentTs + 3600);
 
-    // The relayer can be anyone; for the signature, use buyer's key/address
-    const sender = buyer.address;
+    const nonce = deal[7] as bigint;
+    const depositTime = deal[5] as bigint;
 
-    // Your contract expects the hash to include chainId, contract address, escrowId, msg.sender (relayer),
-    // depositTime, deadline, nonce, "cancelRequest"
+    const sender = buyer.address; // who is requesting cancel
+
     const hash = buildMessageHash(
         chainId,
         escrowAddress,
         id,
-        sender,       // should be the relayer address, matches msg.sender in contract (here: buyer)
+        sender,
         depositTime,
         deadline,
         nonce,
-        "cancelRequest"
+        'cancelRequest',
     );
     const signature = await sign(buyerClient, sender, hash);
 
-    // Relayer (may be buyer, seller, or any) submits the signed cancel request
     await buyerClient.writeContract({
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'requestCancelSigned',
         args: [id, signature, deadline, nonce],
     });
+
+    deal = await getDeal(id);
+    assert.equal(
+        deal.buyerCancelRequested ?? deal[9],
+        true,
+        'Buyer cancel request should be recorded after requestCancelSigned',
+    );
 });
 
 
