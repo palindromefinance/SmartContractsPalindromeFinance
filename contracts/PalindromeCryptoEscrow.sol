@@ -196,7 +196,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         deal.seller = msg.sender;
         deal.arbiter = arbiter;
         deal.amount = amount;
-        deal.maturityTime = block.timestamp + (maturityTimeDays * 1 days); // ← fixed: store absolute timestamp
+        deal.maturityTime = block.timestamp + (maturityTimeDays * 1 days); 
         deal.state = State.AWAITING_PAYMENT;
         deal.nonce = 0;
 
@@ -207,7 +207,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
             token,
             amount,
             arbiter,
-            maturityTimeDays,  // keep days for event readability
+            maturityTimeDays,
             title,
             ipfsHash
         );
