@@ -606,12 +606,10 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         emit RequestCancel(escrowId, signer);
         /// @notice Handles the cancellation of a deal when both buyer and seller have requested it.
         /// @dev Calculates the fee and updates the deal state to CANCELED.
-        if (deal.buyerCancelRequested) {
-            if (deal.sellerCancelRequested) {
+        if (deal.buyerCancelRequested && deal.sellerCancelRequested) {
                 uint256 fee = _escrowPayout(deal.token, deal.buyer, deal.amount, false);
                 deal.state = State.CANCELED;
                 emit Canceled(escrowId, msg.sender, deal.amount, fee);
-            }
         }
     }
 
