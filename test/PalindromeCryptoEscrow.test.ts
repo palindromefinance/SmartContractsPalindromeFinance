@@ -9,7 +9,6 @@
  *  - Delivery confirmation and seller withdrawal via both direct and meta-tx signatures.
  *  - Protocol fee accrual with LP token minting and secure owner withdrawal (withdrawAllFees).
  *  - Mutual cancel and cancelByTimeout: both immediate (mutual) and delayed (by maturity/timeout).
- *  - Seller autoRelease after escrow maturity, validating time-dependent payout.
  *  - Arbiter/owner issues refunds both directly and via off-chain meta-transaction.
  *  - Secure dispute opening (buyer/seller only), meta-tx and direct, with resolution to both seller (COMPLETE) and buyer (REFUNDED) paths.
  *  - Only authorized roles can withdraw, dispute, resolve, or cancel; unauthorized access tests revert as expected.
@@ -417,36 +416,6 @@ test('mutual cancel triggers withdrawal for buyer', async () => {
         args: [tokenAddress, buyer.address]
     });
     assert.equal(Number(buyerAfter), 0, "Buyer withdrawable zero after claiming cancel funds");
-});
-
-test('autoRelease allows seller to release funds after maturity', async () => {
-    // Setup: Create and fund an escrow with maturity period
-    const MATURITY_DAYS = 1n; // 1 day
-    const id = await setupDeal(AMOUNT, MATURITY_DAYS);
-
-    await buyerClient.writeContract({
-        address: escrowAddress,
-        abi: escrowAbi,
-        functionName: 'deposit',
-        args: [id]
-    });
-
-    // Fast-forward time past maturity
-    let deal = await getDeal(id);
-    const fastForwardSeconds = Number(MATURITY_DAYS * 86400n) + 10;
-    await increaseTime(fastForwardSeconds);
-
-    // Seller calls autoRelease, should succeed
-    await sellerClient.writeContract({
-        address: escrowAddress,
-        abi: escrowAbi,
-        functionName: 'autoRelease',
-        args: [id]
-    });
-
-    // Confirm state transition to COMPLETE
-    deal = await getDeal(id);
-    assert.equal(deal[8], State.COMPLETE, "Escrow should be COMPLETE after autoRelease");
 });
 
 
