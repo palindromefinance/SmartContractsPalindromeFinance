@@ -54,18 +54,11 @@ async function main() {
         args: ["Tether USD", "USDT", USDT_INITIAL_SUPPLY],
     });
 
-    // --- Deploy LP token contract ---
-    const lpAddress = await deployContract(deployerClient, deployerAccount, {
-        abi: LPArtifact.abi,
-        bytecode: LPArtifact.bytecode as `0x${string}`,
-        args: [],
-    });
-
     // --- Deploy Escrow contract, pass LP token + USDT token as constructor args ---
     const escrowAddress = await deployContract(deployerClient, deployerAccount, {
         abi: EscrowArtifact.abi,
         bytecode: EscrowArtifact.bytecode as `0x${string}`,
-        args: [lpAddress, usdtAddress],
+        args: [usdtAddress],
     });
 
     // --- (Important) Set LP minter to Escrow contract ---
@@ -76,18 +69,9 @@ async function main() {
         functionName: "setMinter",
         args: [escrowAddress],
     });
-    const setMinterHash = await deployerClient.sendTransaction({
-        to: lpAddress,
-        data: setMinterCalldata,
-        account: deployerAccount,
-        chain: hardhat,
-    });
-    await publicClient.waitForTransactionReceipt({ hash: setMinterHash });
 
     console.log(`USDT deployed to:             ${usdtAddress}`);
-    console.log(`LP Token deployed to:         ${lpAddress}`);
     console.log(`PalindromeCryptoEscrow to:    ${escrowAddress}`);
-    console.log(`LP minter set to escrow:      ${escrowAddress}`);
 }
 
 main().catch((err) => {
