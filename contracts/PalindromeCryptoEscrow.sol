@@ -307,7 +307,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         uint256 netAmount;
         if (applyFee && _FEE_BPS > 0) {
 
-            feeTaken = (amount * _FEE_BPS + 9999) / 10_000; 
+            feeTaken = (amount * _FEE_BPS) / 10_000; 
             
             uint256 minFee = 10 ** (TOKEN_DECIMAL - 2);
             if (feeTaken < minFee && amount >= 10 * 10**TOKEN_DECIMAL) {
