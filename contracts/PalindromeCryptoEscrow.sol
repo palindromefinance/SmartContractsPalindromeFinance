@@ -22,7 +22,6 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
     uint256 public constant DISPUTE_LONG_TIMEOUT = 30 days;
     uint256 public constant TIMEOUT_BUFFER = 1 hours;
     uint256 constant GRACE_PERIOD = 6 hours;
-    uint256 constant BLOCKS_PER_DAY = 7200; 
 
     struct EscrowDeal {
         address token;
@@ -56,14 +55,12 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
     mapping(uint256 escrowId => Nonces) public escrowsNonces; 
     mapping(bytes32 => bool) public usedSignatures;
     mapping(uint256 => bool) public arbiterDecisionSubmitted;
-    mapping(uint256 => uint256) public escrowDepositBlock;
 
     error InvalidMessageRoleForDispute();
     error InvalidState();
     error Unauthorized();
     error InsufficientBalance();
     error ZeroAmount();
-    error ArbiterMessageAlreadyPosted();
 
     // ---- Events ----
     event TokenAllowed(address indexed token, bool allowed);
@@ -87,8 +84,6 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
     event Refunded(uint256 indexed escrowId, address indexed initiator, uint256 amount, uint256 fee);
     event DisputeMessagePosted(uint256 indexed escrowId, address indexed sender, uint256 indexed role, string ipfsHash, uint256 disputeStatus);
     event Withdrawn(address indexed token, address indexed user, uint256 amount);
-    event FeeWithdrawn(address indexed token, address indexed to, uint256 amount);
-    event EscrowArbiterChanged(uint256 indexed escrowId, address oldArbiter, address newArbiter);
     event FeesWithdrawn(address indexed token, address indexed to, uint256 amount);
     event PayoutProcessed(uint256 indexed escrowId, address indexed recipient, uint256 netAmount, uint256 fee);
     event EscrowStateChanged(uint256 indexed escrowId, State oldState, State newState);
@@ -171,19 +166,16 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         else revert("Unknown signer role");
     }
 
-    /**
-    * @dev Validates ECDSA signature format, enforces low-S canonical form (anti-malleability),
-    *      and implements replay protection via raw signature hash.
-    *      
-    *      Security guarantees:
-    *      - Length: exactly 65 bytes (r=32, s=32, v=1)
-    *      - Malleability: s ≤ secp256k1n/2 (rejects (r, n-s) variants)
-    *      - Recovery ID: v ∈ {27, 28} only (rejects invalid recovery ids)
-    *      - Replay: keccak256(signature) marked used (blocks exact byte duplicates)
-    *
-    * @param signature Raw ECDSA signature bytes (must be exactly 65 bytes)
+    /*
+     * @param escrowId The specific escrow this signature is valid for
+     * @param signature Raw ECDSA signature bytes (must be exactly 65 bytes)
+     * 
+     * Security improvements:
+     * - Binds signature to specific escrowId (prevents cross-escrow replay)
+     * - Maintains malleability protection (low-S check)
+     * - Validates recovery ID (v ∈ {27, 28})
     */
-    function _useSignature(bytes calldata signature) internal {
+    function _useSignature(uint256 escrowId, bytes calldata signature) internal {
         require(signature.length == 65, "Invalid sig length");
 
         bytes32 r;
@@ -195,15 +187,17 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
             s := calldataload(add(signature.offset, 32))
             v := byte(0, calldataload(add(signature.offset, 64)))
         }
+        
+        // Malleability protection: enforce low-S canonical form
         require(
             uint256(s) <= 0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF5D576E7357A4501DDFE92F46681B20A0,
             "Invalid signature s"
         );
         require(v == 27 || v == 28, "Invalid v");
 
-        bytes32 rawSigHash = keccak256(signature);
-        require(!usedSignatures[rawSigHash], "Signature already used");
-        usedSignatures[rawSigHash] = true;
+        bytes32 escrowSigHash = keccak256(abi.encodePacked(escrowId, signature));
+        require(!usedSignatures[escrowSigHash], "Signature already used for this escrow");
+        usedSignatures[escrowSigHash] = true;
     }
 
     /**
@@ -317,13 +311,24 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
             uint256 calculatedFee = (amount * _FEE_BPS) / 10_000;
             feeTaken = calculatedFee >= minFee ? calculatedFee : minFee;
 
+            uint256 maxFee = amount / 10;
+            if (feeTaken > maxFee) {
+                feeTaken = maxFee;
+            }
             uint256 netAmount = amount > feeTaken ? amount - feeTaken : 0;
             require(netAmount > 0, "Dust payout");
 
-            withdrawable[escrowId][recipient] += netAmount;
-            feePool[token] += feeTaken;
+            uint256 newBalance = withdrawable[escrowId][recipient] + netAmount;
+            require(newBalance >= withdrawable[escrowId][recipient], "Overflow in withdrawable");
+            withdrawable[escrowId][recipient] = newBalance;
+            
+            uint256 newFeePool = feePool[token] + feeTaken;
+            require(newFeePool >= feePool[token], "Overflow in feePool");
+            feePool[token] = newFeePool;
         } else {
-            withdrawable[escrowId][recipient] += amount;
+            uint256 newBalance = withdrawable[escrowId][recipient] + amount;
+            require(newBalance >= withdrawable[escrowId][recipient], "Overflow in withdrawable");
+            withdrawable[escrowId][recipient] = newBalance;
             feeTaken = 0;
         }
 
@@ -596,6 +601,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         
         uint256 expectedNonce = _getRoleNonce(escrowId, deal.buyer, deal);
         require(nonce == expectedNonce, "Invalid nonce");
+        _incrementRoleNonce(escrowId, deal.buyer, deal);
         require(deal.arbiter != address(0), "Invalid arbiter");
         require(deal.arbiter.code.length == 0, "Arbiter must be EOA");
         
@@ -617,11 +623,10 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         );
         
         address signer = ECDSA.recover(structHash.toEthSignedMessageHash(), signature);
-        require(signer == deal.buyer, "Unauthorized signer");
         require(signer != address(0), "Invalid recovery");
+        require(signer == deal.buyer, "Unauthorized signer");
 
-         _useSignature(signature);
-        _incrementRoleNonce(escrowId, signer, deal);
+         _useSignature(escrowId, signature);
         uint256 fee = _escrowPayout(escrowId, deal.token, deal.seller, deal.amount, true);
         deal.state = State.COMPLETE;
         
@@ -657,9 +662,10 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         // 4. Nonce validation for caller's role
         uint256 expectedNonce = _getRoleNonce(escrowId, msg.sender, deal);
         require(nonce == expectedNonce, "Invalid nonce");
+         _incrementRoleNonce(escrowId, msg.sender, deal);
         require(deal.arbiter != address(0), "Invalid arbiter");
         require(deal.arbiter.code.length == 0, "Arbiter must be EOA");
-        
+
         // 5. Domain-separated message hash
         bytes32 structHash = keccak256(
             abi.encode(
@@ -686,8 +692,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
             "Signature mismatch"
         );
         
-         _useSignature(signature);
-        _incrementRoleNonce(escrowId, signer, deal);
+         _useSignature(escrowId, signature);
         
         bool wasMutual = deal.buyerCancelRequested && deal.sellerCancelRequested;
         if (signer == deal.buyer) {
@@ -729,6 +734,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
     
         uint256 expectedNonce = _getRoleNonce(escrowId, msg.sender, deal);
         require(nonce == expectedNonce, "Invalid nonce");
+         _incrementRoleNonce(escrowId, msg.sender, deal);
         require(deal.arbiter != address(0), "Invalid arbiter");
         require(deal.arbiter.code.length == 0, "Arbiter must be EOA");
         
@@ -758,8 +764,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
             "Signature mismatch"
         );
 
-         _useSignature(signature);
-        _incrementRoleNonce(escrowId, signer, deal);
+        _useSignature(escrowId, signature);
         deal.state = State.DISPUTED;
         deal.disputeStartTime = block.timestamp;
         
