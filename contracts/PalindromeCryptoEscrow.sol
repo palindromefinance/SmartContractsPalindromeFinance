@@ -248,14 +248,15 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         require(buyer != msg.sender, "Buyer and seller cannot be same");
         require(amount > 0, "Amount must be > 0");
         require(maturityTimeDays < 3651, "Max 10 years");
-        require(arbiter != address(0), "Arbiter must be specified");
-        require(arbiter != msg.sender && arbiter != buyer, "Invalid arbiter");
-
+       
         uint8 decimals = getTokenDecimals(token);
         uint256 minimumAmount = 10 * 10 ** decimals;  // equivalent to $10 minimum in token's smallest unit
         require(amount >= minimumAmount, "Amount less than minimum");
 
         uint256 escrowId = nextEscrowId++;
+
+        address arbiterParam = arbiter == address(0) ? owner() : arbiter;
+        require(arbiterParam != msg.sender && arbiterParam != buyer, "Invalid arbiter");
         
         EscrowDeal storage deal = escrows[escrowId];
         deal.token = token;
@@ -309,14 +310,15 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         require(seller != msg.sender, "Buyer and seller cannot be same");
         require(amount > 0, "Amount must be > 0");
         require(maturityTimeDays < 3651, "Max 10 years");
-        require(arbiter != address(0), "Arbiter must be specified");
-        require(arbiter != msg.sender && arbiter != seller, "Invalid arbiter");
 
         uint8 decimals = getTokenDecimals(token);
         uint256 minimumAmount = 10 * 10 ** decimals;
         if (amount < minimumAmount) revert("Amount less than minimum");
   
         escrowId = nextEscrowId++;
+
+        address arbiterParam = arbiter == address(0) ? owner() : arbiter;
+        require(arbiterParam != msg.sender && arbiterParam != seller, "Invalid arbiter");
 
         EscrowDeal storage deal = escrows[escrowId];
         deal.token = token;
@@ -673,8 +675,6 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         uint256 expectedNonce = _getRoleNonce(escrowId, deal.buyer, deal);
         require(nonce == expectedNonce, "Invalid nonce");
         _incrementRoleNonce(escrowId, deal.buyer, deal);
-        require(deal.arbiter != address(0), "Invalid arbiter");
-        require(deal.arbiter.code.length == 0, "Arbiter must be EOA");
         
         bytes32 structHash = keccak256(
             abi.encode(
@@ -729,8 +729,6 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         uint256 expectedNonce = _getRoleNonce(escrowId, msg.sender, deal);
         require(nonce == expectedNonce, "Invalid nonce");
          _incrementRoleNonce(escrowId, msg.sender, deal);
-        require(deal.arbiter != address(0), "Invalid arbiter");
-        require(deal.arbiter.code.length == 0, "Arbiter must be EOA");
 
         bytes32 structHash = keccak256(
             abi.encode(
@@ -800,8 +798,6 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         uint256 expectedNonce = _getRoleNonce(escrowId, msg.sender, deal);
         require(nonce == expectedNonce, "Invalid nonce");
          _incrementRoleNonce(escrowId, msg.sender, deal);
-        require(deal.arbiter != address(0), "Invalid arbiter");
-        require(deal.arbiter.code.length == 0, "Arbiter must be EOA");
         
         bytes32 structHash = keccak256(
             abi.encode(
