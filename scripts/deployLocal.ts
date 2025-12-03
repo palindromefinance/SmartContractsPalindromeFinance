@@ -12,7 +12,6 @@ function loadArtifact(path: string) {
     return JSON.parse(readFileSync(path, "utf8"));
 }
 const EscrowArtifact = loadArtifact("./artifacts/contracts/PalindromeCryptoEscrow.sol/PalindromeCryptoEscrow.json");
-const LPArtifact = loadArtifact("./artifacts/contracts/PalindromeEscrowLP.sol/PalindromeEscrowLP.json");
 const USDTArtifact = loadArtifact("./artifacts/contracts/USDT.sol/USDT.json");
 
 // --- Setup clients ---
@@ -59,15 +58,6 @@ async function main() {
         abi: EscrowArtifact.abi,
         bytecode: EscrowArtifact.bytecode as `0x${string}`,
         args: [usdtAddress],
-    });
-
-    // --- (Important) Set LP minter to Escrow contract ---
-    // Build calldata for setMinter
-    const { encodeFunctionData } = await import("viem"); // Lazy load for NodeJS
-    const setMinterCalldata = encodeFunctionData({
-        abi: LPArtifact.abi,
-        functionName: "setMinter",
-        args: [escrowAddress],
     });
 
     console.log(`USDT deployed to:             ${usdtAddress}`);

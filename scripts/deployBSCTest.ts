@@ -5,7 +5,6 @@ import {
     createPublicClient,
     createWalletClient,
     http,
-    encodeFunctionData,
 } from "viem";
 import { bscTestnet } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
@@ -17,7 +16,6 @@ function loadArtifact(path: string) {
 }
 
 const EscrowArtifact = loadArtifact("./artifacts/contracts/PalindromeCryptoEscrow.sol/PalindromeCryptoEscrow.json");
-const LPArtifact = loadArtifact("./artifacts/contracts/PalindromeEscrowLP.sol/PalindromeEscrowLP.json");
 const USDTArtifact = loadArtifact("./artifacts/contracts/USDT.sol/USDT.json");
 
 // === Load env variables ===
@@ -84,36 +82,13 @@ async function main() {
         console.log("Using existing USDT at:", usdtAddress);
     }
 
-    // 2. Deploy LP token
-    const lp = await deployContract(deployerClient, {
-        abi: LPArtifact.abi,
-        bytecode: LPArtifact.bytecode,
-        args: [],
-    });
-    const lpAddress = lp.address;
-    console.log("LP Token deployed at:", lpAddress);
-
-    // 3. Deploy Escrow contract - pass LP address and USDT address
     const escrow = await deployContract(deployerClient, {
         abi: EscrowArtifact.abi,
         bytecode: EscrowArtifact.bytecode,
-        args: [lpAddress, usdtAddress],
+        args: [usdtAddress],
     });
     const escrowAddress = escrow.address;
     console.log("PalindromeCryptoEscrow deployed at:", escrowAddress, escrow.blockNumber);
-
-    // 4. Set LP minter to escrow contract
-    const calldata = encodeFunctionData({
-        abi: LPArtifact.abi,
-        functionName: "setMinter",
-        args: [escrowAddress]
-    });
-    const txHash = await deployerClient.sendTransaction({
-        to: lpAddress,
-        data: calldata,
-    });
-    await publicClient.waitForTransactionReceipt({ hash: txHash });
-    console.log("LP minter set to escrow:", escrowAddress);
 }
 
 main().catch((err) => {

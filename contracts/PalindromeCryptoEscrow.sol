@@ -71,7 +71,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         address token,
         uint256 amount,
         address arbiter,
-        uint256 maturityTime,
+        uint256 maturityTimeDays,
         string title,
         string ipfsHash
     );
@@ -236,6 +236,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
     function createEscrow(
         address token,
         address buyer,
+        address seller, 
         uint256 amount,
         uint256 maturityTimeDays,
         address arbiter,
@@ -248,20 +249,23 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         require(buyer != msg.sender, "Buyer and seller cannot be same");
         require(amount > 0, "Amount must be > 0");
         require(maturityTimeDays < 3651, "Max 10 years");
-        require(arbiter != address(0), "Arbiter must be specified");
-        require(arbiter != msg.sender && arbiter != buyer, "Invalid arbiter");
 
         uint8 decimals = getTokenDecimals(token);
         uint256 minimumAmount = 10 * 10 ** decimals;  // equivalent to $10 minimum in token's smallest unit
         require(amount >= minimumAmount, "Amount less than minimum");
 
         uint256 escrowId = nextEscrowId++;
+        address sellerParam = seller == address(0) ? msg.sender : seller;
+        address arbiterParam = arbiter == address(0) ? owner() : arbiter;
+
+        require(arbiter != msg.sender && arbiter != buyer, "Invalid arbiter");
+        require(buyer != sellerParam, "Buyer and seller cannot be same");
         
         EscrowDeal storage deal = escrows[escrowId];
         deal.token = token;
         deal.buyer = buyer;
-        deal.seller = msg.sender;
-        deal.arbiter = arbiter;
+        deal.seller = sellerParam;
+        deal.arbiter = arbiterParam;
         deal.amount = amount;
         deal.maturityTime = block.timestamp + (maturityTimeDays * 1 days); 
         deal.state = State.AWAITING_PAYMENT;  
@@ -277,7 +281,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
             token,
             amount,
             arbiter,
-            deal.maturityTime,
+            maturityTimeDays,
             title,
             ipfsHash
         );
@@ -375,7 +379,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         }
         
         IERC20(deal.token).safeTransfer(msg.sender, amount);        
-        
+    
         emit Withdrawn(deal.token, msg.sender, amount);
     }
 
@@ -557,7 +561,6 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         bool shortTimeout = (block.timestamp > deal.disputeStartTime + DISPUTE_SHORT_TIMEOUT);
         bool longTimeout = (block.timestamp > deal.disputeStartTime + DISPUTE_LONG_TIMEOUT + TIMEOUT_BUFFER);
 
-
         require(minEvidence || longTimeout, "Require evidence or 30-day timeout");
         require(fullEvidence || shortTimeout, "Require full evidence or 7-day timeout");
         
@@ -649,24 +652,18 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         uint256 deadline,
         uint256 nonce
     ) external nonReentrant {
-        // 1. Signature time window
         require(deadline > block.timestamp && deadline < block.timestamp + 30 days, "Invalid or expired signature");
 
-        // 2. Load escrow and validate state
         EscrowDeal storage deal = escrows[escrowId];
         require(deal.state == State.AWAITING_DELIVERY, "Invalid state");
-        
-        // 3. Caller must be participant (buyer/seller)
         require(msg.sender == deal.buyer || msg.sender == deal.seller, "Not participant");
         
-        // 4. Nonce validation for caller's role
         uint256 expectedNonce = _getRoleNonce(escrowId, msg.sender, deal);
         require(nonce == expectedNonce, "Invalid nonce");
          _incrementRoleNonce(escrowId, msg.sender, deal);
         require(deal.arbiter != address(0), "Invalid arbiter");
         require(deal.arbiter.code.length == 0, "Arbiter must be EOA");
 
-        // 5. Domain-separated message hash
         bytes32 structHash = keccak256(
             abi.encode(
                 block.chainid,
@@ -738,7 +735,6 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         require(deal.arbiter != address(0), "Invalid arbiter");
         require(deal.arbiter.code.length == 0, "Arbiter must be EOA");
         
-
         bytes32 structHash = keccak256(
             abi.encode(
                 block.chainid,
