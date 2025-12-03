@@ -187,9 +187,20 @@ async function createEscrow(amount: bigint = AMOUNT, maturityDays: bigint = 0n) 
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'createEscrow',
-        args: [tokenAddress, buyer.address, seller.address, amount, maturityDays, owner.address, "Escrow title", "QmHash"],
+        args: [tokenAddress, buyer.address, amount, maturityDays, owner.address, "Escrow title", "QmHash"],
         chain: CHAIN,
         account: seller
+    });
+}
+
+async function createEscrowAndDeposit(amount: bigint = AMOUNT, maturityDays: bigint = 0n) {
+    await buyerClient.writeContract({
+        address: escrowAddress,
+        abi: escrowAbi,
+        functionName: 'createEscrowAndDeposit',
+        args: [tokenAddress, seller.address, amount, maturityDays, owner.address, "Escrow title", "QmHash"],
+        chain: CHAIN,
+        account: buyer
     });
 }
 
@@ -197,6 +208,16 @@ async function createEscrow(amount: bigint = AMOUNT, maturityDays: bigint = 0n) 
 async function setupDeal(amount = AMOUNT, maturityDays = 0n): Promise<number> {
     await fundAndApprove(amount);
     await createEscrow(amount, maturityDays);
+    const nextId = Number(await publicClient.readContract({
+        address: escrowAddress,
+        abi: escrowAbi,
+        functionName: 'nextEscrowId'
+    }));
+    return nextId - 1;
+}
+async function setupDealCreateEscrowAndDeposit(amount = AMOUNT, maturityDays = 0n): Promise<number> {
+    await fundAndApprove(amount);
+    await createEscrowAndDeposit(amount, maturityDays);
     const nextId = Number(await publicClient.readContract({
         address: escrowAddress,
         abi: escrowAbi,
@@ -270,7 +291,46 @@ async function increaseTime(seconds: number) {
     await publicClient.transport.request({ method: 'evm_mine', params: [] });
 }
 
-// --------- Core Tests (contract state and withdrawal) ---------
+// --------- Core Tests ---------
+
+test('createAndDepositEscrow creates + funds in one tx', async () => {
+    const amount = AMOUNT;
+    const maturityDays = 1n;
+
+    const id = await setupDealCreateEscrowAndDeposit(amount, maturityDays);
+
+    const deal = await getDeal(id) as any[];
+
+    // 1) Parties and core fields
+    assert.equal(deal[1], buyer.address, 'Buyer should be msg.sender');
+    assert.equal(deal[2], seller.address, 'Seller set correctly');
+    assert.equal(deal[4], amount, 'Amount stored correctly');
+
+    // 2) State and timestamps
+    assert.equal(deal[8], State.AWAITING_DELIVERY, 'State must be AWAITING_DELIVERY immediately');
+    assert(deal[5] > 0n, 'Deposit time should be recorded');
+
+    // 3) Token balances (escrow holds the funds)
+    const escrowBalance = await publicClient.readContract({
+        address: tokenAddress,
+        abi: tokenAbi,
+        functionName: 'balanceOf',
+        args: [escrowAddress],
+    });
+    assert.equal(escrowBalance, amount, 'Escrow contract must hold the deposited amount');
+
+    // 4) Optional: protocol invariants, e.g. nonces initialized
+    const nonces = await publicClient.readContract({
+        address: escrowAddress,
+        abi: escrowAbi,
+        functionName: 'escrowsNonces',
+        args: [id],
+    }) as any[];
+    assert.equal(nonces[0], 0n, 'Buyer nonce starts at 0');
+    assert.equal(nonces[1], 0n, 'Seller nonce starts at 0');
+    assert.equal(nonces[2], 0n, 'Arbiter nonce starts at 0');
+});
+
 test('deposit and delivery flow with withdrawal', async () => {
     const id = await setupDeal();
     await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'deposit', args: [id] });
@@ -304,7 +364,6 @@ test('deposit and delivery flow with withdrawal', async () => {
     const deal = await getDeal(id);
     assert.equal(deal[8], State.WITHDRAWN, "Escrow should be WITHDRAWN after seller withdraw");
 });
-
 
 test('mutual cancel triggers withdrawal for buyer', async () => {
     const id = await setupDeal();

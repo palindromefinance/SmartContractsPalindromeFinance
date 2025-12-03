@@ -233,10 +233,9 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
     * @param ipfsHash Additional metadata on IPFS
     * @return escrowId The newly created escrow ID
     */
-    function createEscrow(
+   function createEscrow(
         address token,
         address buyer,
-        address seller, 
         uint256 amount,
         uint256 maturityTimeDays,
         address arbiter,
@@ -246,25 +245,23 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         require(token != address(0), "Token cannot be zero address");
         require(allowedTokens[token], "Token not allowed");
         require(buyer != address(0), "Buyer cannot be zero address");
+        require(buyer != msg.sender, "Buyer and seller cannot be same");
         require(amount > 0, "Amount must be > 0");
         require(maturityTimeDays < 3651, "Max 10 years");
+        require(arbiter != address(0), "Arbiter must be specified");
+        require(arbiter != msg.sender && arbiter != buyer, "Invalid arbiter");
 
         uint8 decimals = getTokenDecimals(token);
         uint256 minimumAmount = 10 * 10 ** decimals;  // equivalent to $10 minimum in token's smallest unit
         require(amount >= minimumAmount, "Amount less than minimum");
 
         uint256 escrowId = nextEscrowId++;
-        address sellerParam = seller == address(0) ? msg.sender : seller;
-        address arbiterParam = arbiter == address(0) ? owner() : arbiter;
-
-        require(arbiterParam != msg.sender && arbiterParam != buyer, "Invalid arbiter");
-        require(buyer != sellerParam, "Buyer and seller cannot be same");
         
         EscrowDeal storage deal = escrows[escrowId];
         deal.token = token;
         deal.buyer = buyer;
-        deal.seller = sellerParam;
-        deal.arbiter = arbiterParam;
+        deal.seller = msg.sender;
+        deal.arbiter = arbiter;
         deal.amount = amount;
         deal.maturityTime = block.timestamp + (maturityTimeDays * 1 days); 
         deal.state = State.AWAITING_PAYMENT;  
@@ -276,16 +273,88 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         emit EscrowCreated(
             escrowId,
             buyer,
-            sellerParam,
+            msg.sender,
             token,
             amount,
-            arbiterParam,
-            maturityTimeDays,
+            arbiter,
+            deal.maturityTime,
             title,
             ipfsHash
         );
 
         return escrowId;
+    }
+
+    /* @param token The ERC20 token for the escrow
+    * @param seller Address of the seller (use address(0) to default to msg.sender)
+    * @param amount Amount of tokens to escrow (must be >= 10 * 10^decimals)
+    * @param maturityTimeDays Number of days until auto-release is allowed (max 3650 = ~10 years)
+    * @param arbiter Optional arbiter address (use address(0) for default = contract owner)
+    * @param title Deal title (for frontend display)
+    * @param ipfsHash Additional metadata on IPFS (deal description, terms, etc.)
+    * @return escrowId The newly created escrow ID
+    */
+    function createEscrowAndDeposit(
+        address token,
+        address seller,
+        uint256 amount,
+        uint256 maturityTimeDays,
+        address arbiter,
+        string calldata title,
+        string calldata ipfsHash
+    ) external nonReentrant returns (uint256 escrowId) {
+        require(token != address(0), "Token cannot be zero address");
+        require(allowedTokens[token], "Token not allowed");
+        require(seller != address(0), "Buyer cannot be zero address");
+        require(seller != msg.sender, "Buyer and seller cannot be same");
+        require(amount > 0, "Amount must be > 0");
+        require(maturityTimeDays < 3651, "Max 10 years");
+        require(arbiter != address(0), "Arbiter must be specified");
+        require(arbiter != msg.sender && arbiter != seller, "Invalid arbiter");
+
+        uint8 decimals = getTokenDecimals(token);
+        uint256 minimumAmount = 10 * 10 ** decimals;
+        if (amount < minimumAmount) revert("Amount less than minimum");
+  
+        escrowId = nextEscrowId++;
+
+        EscrowDeal storage deal = escrows[escrowId];
+        deal.token = token;
+        deal.buyer = msg.sender;
+        deal.seller = seller;
+        deal.arbiter = arbiter;
+        deal.amount = amount;
+        deal.maturityTime = block.timestamp + (maturityTimeDays * 1 days);
+        deal.state = State.AWAITING_PAYMENT;
+
+        address buyer = msg.sender;
+
+        escrowsNonces[escrowId] = Nonces({buyer: 0, seller: 0, arbiter: 0});
+
+        emit EscrowCreated(
+            escrowId,
+            buyer,
+            seller,
+            token,
+            amount,
+            arbiter,
+            maturityTimeDays,
+            title,
+            ipfsHash
+        );
+
+        uint256 balanceBefore = IERC20(token).balanceOf(address(this));
+        IERC20(token).safeTransferFrom(buyer, address(this), amount);
+        uint256 balanceAfter = IERC20(token).balanceOf(address(this));
+
+        uint256 actualReceived = balanceAfter - balanceBefore;
+        if (actualReceived != amount) revert("Fee-on-transfer tokens not supported");
+
+        deal.amount = actualReceived;
+        deal.depositTime = block.timestamp;
+        deal.state = State.AWAITING_DELIVERY;
+
+        emit PaymentDeposited(escrowId, buyer, actualReceived);
     }
 
     /*
