@@ -187,7 +187,7 @@ async function createEscrow(amount: bigint = AMOUNT, maturityDays: bigint = 0n) 
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'createEscrow',
-        args: [tokenAddress, buyer.address, amount, maturityDays, owner.address, "Escrow title", "QmHash"],
+        args: [tokenAddress, buyer.address, seller.address, amount, maturityDays, owner.address, "Escrow title", "QmHash"],
         chain: CHAIN,
         account: seller
     });
