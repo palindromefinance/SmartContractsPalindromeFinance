@@ -19,7 +19,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
 
     uint256 private constant _FEE_BPS = 100; 
     uint256 public constant DISPUTE_SHORT_TIMEOUT = 7 days;
-    uint256 public constant DISPUTE_LONG_TIMEOUT = 30 days;
+    uint256 public constant DISPUTE_LONG_TIMEOUT = 1 days;
     uint256 public constant TIMEOUT_BUFFER = 1 hours;
     uint256 constant GRACE_PERIOD = 6 hours;
 
@@ -195,7 +195,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         );
         require(v == 27 || v == 28, "Invalid v");
 
-        bytes32 escrowSigHash = keccak256(abi.encodePacked(escrowId, signature));
+        bytes32 escrowSigHash = keccak256(abi.encodePacked(block.chainid, escrowId, signature));
         require(!usedSignatures[escrowSigHash], "Signature already used for this escrow");
         usedSignatures[escrowSigHash] = true;
     }
@@ -262,7 +262,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         deal.token = token;
         deal.buyer = buyer;
         deal.seller = msg.sender;
-        deal.arbiter = arbiter;
+        deal.arbiter = arbiterParam;
         deal.amount = amount;
         deal.maturityTime = block.timestamp + (maturityTimeDays * 1 days); 
         deal.state = State.AWAITING_PAYMENT;  
@@ -324,7 +324,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         deal.token = token;
         deal.buyer = msg.sender;
         deal.seller = seller;
-        deal.arbiter = arbiter;
+        deal.arbiter = arbiterParam;
         deal.amount = amount;
         deal.maturityTime = block.timestamp + (maturityTimeDays * 1 days);
         deal.state = State.AWAITING_PAYMENT;
@@ -382,7 +382,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         uint256 minFee = 10 ** (decimals > 2 ? decimals - 2 : 0); 
 
         if (applyFee) {
-            uint256 calculatedFee = (amount * _FEE_BPS) / 10_000;
+            uint256 calculatedFee = (amount / 10_000) * _FEE_BPS; 
             feeTaken = calculatedFee >= minFee ? calculatedFee : minFee;
 
             uint256 maxFee = amount / 10;
@@ -417,41 +417,40 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
     function withdraw(uint256 escrowId) external nonReentrant onlyBuyerorSeller(escrowId) {
         EscrowDeal storage deal = escrows[escrowId];
         State oldState = deal.state;
-        
-        require(deal.state != State.WITHDRAWN, "Already withdrawn");
+
         require(
             deal.state == State.CANCELED ||
             deal.state == State.COMPLETE ||
             deal.state == State.REFUNDED,
             "Withdrawals only after escrow ends"
         );
-        
+        require(deal.state != State.WITHDRAWN, "Already withdrawn");
+
         if (deal.state == State.COMPLETE) {
             require(msg.sender == deal.seller, "Only seller can withdraw after completion");
-        } else if (deal.state == State.REFUNDED || deal.state == State.CANCELED) {
+        } else {
             require(msg.sender == deal.buyer, "Only buyer can withdraw after refund/cancel");
         }
-        
+
         uint256 amount = withdrawable[escrowId][msg.sender];
-        require(amount > 0, "ZeroAmount");
-        
+        require(amount > 0, "Nothing to withdraw");
         withdrawable[escrowId][msg.sender] = 0;
-        
+
         if (msg.sender == deal.buyer) {
             deal.buyerWithdrawn = true;
         } else {
             deal.sellerWithdrawn = true;
         }
-        
+
         if (withdrawable[escrowId][deal.buyer] == 0 && withdrawable[escrowId][deal.seller] == 0) {
             deal.state = State.WITHDRAWN;
             emit EscrowStateChanged(escrowId, oldState, State.WITHDRAWN);
         }
-        
-        IERC20(deal.token).safeTransfer(msg.sender, amount);        
-    
+
+        IERC20(deal.token).safeTransfer(msg.sender, amount);
         emit Withdrawn(deal.token, msg.sender, amount);
     }
+
 
     /// @notice Allows the contract owner (recommended: multisig) to withdraw all accumulated protocol fees for a specific token
     /// @dev    Fees are collected from successful escrows (1% by default). This function transfers the entire
@@ -586,6 +585,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
     function submitDisputeMessage(uint256 escrowId, Role role, string calldata ipfsHash) external nonReentrant onlyParticipant(escrowId) {
         EscrowDeal storage deal = escrows[escrowId];
         require(deal.state == State.DISPUTED, "Not DISPUTED");
+        require(bytes(ipfsHash).length <= 100, "IPFS hash too long");
         uint256 mask;
         /// @notice Checks if the sender is the buyer and sets the mask accordingly
         if (role == Role.Buyer) {
@@ -667,7 +667,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         uint256 deadline,
         uint256 nonce
     ) external nonReentrant {
-        require(deadline > block.timestamp && deadline < block.timestamp + 30 days, "Invalid or expired signature");
+        require(deadline > block.timestamp && deadline < block.timestamp + 1 days, "Invalid or expired signature");
 
         EscrowDeal storage deal = escrows[escrowId];
         require(deal.state == State.AWAITING_DELIVERY, "Invalid state");
@@ -720,7 +720,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         uint256 deadline,
         uint256 nonce
     ) external nonReentrant {
-        require(deadline > block.timestamp && deadline < block.timestamp + 30 days, "Invalid or expired signature");
+        require(deadline > block.timestamp && deadline < block.timestamp + 1 days, "Invalid or expired signature");
 
         EscrowDeal storage deal = escrows[escrowId];
         require(deal.state == State.AWAITING_DELIVERY, "Invalid state");
@@ -790,7 +790,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard, Ownable2Step {
         uint256 deadline,
         uint256 nonce
     ) external nonReentrant {
-        require(deadline > block.timestamp && deadline < block.timestamp + 30 days, "Invalid or expired signature");
+        require(deadline > block.timestamp && deadline < block.timestamp + 1 days, "Invalid or expired signature");
 
         EscrowDeal storage deal = escrows[escrowId];
         require(deal.state == State.AWAITING_DELIVERY, "Invalid state");
