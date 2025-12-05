@@ -423,7 +423,8 @@ test('deposit and delivery flow with withdrawal', async () => {
     assert.equal(Number(sellerWithdrawable), 0, "Seller withdrawable should be zero after withdraw");
 
     const deal = await getDeal(id);
-    assert.equal(deal[8], State.WITHDRAWN, "Escrow should be WITHDRAWN after seller withdraw");
+    assert.equal(deal[12], true, "Seller should be marked as withdrawn");
+
 });
 
 test('mutual cancel triggers withdrawal for buyer', async () => {
