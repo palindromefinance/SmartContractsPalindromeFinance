@@ -1,8 +1,10 @@
-# PalindromeCryptoEscrow
+# Crypto Pay & Escrow by Palindrome Finance
 
-**A production-hardened, ERC20-based escrow smart contract with off-chain signature support, mutual cancellation, timeout logic, and robust dispute resolution.**
+**Palindrome Finance** is a **secure crypto payment platform with built-in escrow**, engineered for **trustless, protected digital transactions**.
 
-Built for **P2P marketplaces**, **freelance platforms**, **OTC trading**, and any application requiring **trustless, programmable escrow**.
+Our **smart contract escrow system** ensures funds are released only when conditions are met — eliminating chargebacks and counterparty + fraud.
+
+[www.palindromefinance.com](https://www.palindromefinance.com)
 
 ---
 
@@ -112,44 +114,12 @@ npx hardhat test
 
 ## Testing
 
-Full test suite with **100%+ coverage** using Hardhat + TypeScript:
-
-- Happy paths
-- Reverts & edge cases
-- Signature validation
-- Timeout logic
-- Dispute evidence rules
-- Fee calculations
-
 ```bash
 npx hardhat test
 ```
-
----
-
-## Deployment
-
-1. Set `initialAllowedToken` in constructor (e.g., USDC, USDT)
-2. Deploy via Hardhat or Foundry
-3. Allow additional tokens via `setAllowedToken()`
-4. Recommend **multisig** as owner/arbiter
-
----
-
-## Frontend Integration Tips
-
-- Use `getWithdrawable(escrowId, user)` to show pending funds
-- Poll `escrows[escrowId]` for state updates
-- Index events: `EscrowCreated`, `DeliveryConfirmed`, `DisputeStarted`, etc.
-- Use `ipfsHash` fields for deal terms & evidence
-
----
 
 ## License
 
 MIT
 
 ---
-
-**Secure. Flexible. Production-Ready.**  
-*PalindromeCryptoEscrow — Escrow, Reimagined.*
