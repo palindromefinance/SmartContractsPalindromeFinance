@@ -365,7 +365,7 @@ test('[SIGNATURE] Cannot reuse signature across different escrows', async () => 
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'confirmDeliverySigned',
-        args: [id1, signature, deadline, nonce],
+        args: [id1, signature, deadline, nonce, ''],
     });
 
     const deal1After = await getDeal(id1);
@@ -377,7 +377,7 @@ test('[SIGNATURE] Cannot reuse signature across different escrows', async () => 
             address: escrowAddress,
             abi: escrowAbi,
             functionName: 'confirmDeliverySigned',
-            args: [id2, signature, deadline, nonce],
+            args: [id2, signature, deadline, nonce, ''],
         }),
         'Should reject signature reuse across escrows'
     );
@@ -432,7 +432,7 @@ test('[SIGNATURE] Contract nonce prevents replay after contract upgrade', async 
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'confirmDeliverySigned',
-        args: [id, signature, deadline, nonce],
+        args: [id, signature, deadline, nonce, ''],
     });
 
     const dealAfter = await getDeal(id);
@@ -460,7 +460,7 @@ test('[SIGNATURE] Zero address cannot create valid signatures', async () => {
             address: escrowAddress,
             abi: escrowAbi,
             functionName: 'confirmDeliverySigned',
-            args: [id, invalidSignature, deadline, nonce],
+            args: [id, invalidSignature, deadline, nonce, ''],
         }),
         'Should reject signature from zero address'
     );
@@ -515,7 +515,7 @@ test('[SIGNATURE] Signature deadline exactly at block timestamp boundary', async
             address: escrowAddress,
             abi: escrowAbi,
             functionName: 'confirmDeliverySigned',
-            args: [id, signature, deadline, nonce],
+            args: [id, signature, deadline, nonce, ''],
         }),
         'Should reject signature with deadline at current timestamp'
     );
@@ -542,7 +542,7 @@ test('[FEE] Fee calculation with amount just above minimum threshold', async () 
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'confirmDelivery',
-        args: [id],
+        args: [id, ''],
     });
 
     const deal = await getDeal(id);
@@ -614,7 +614,7 @@ test('[FEE] Fee calculation rounds down correctly', async () => {
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'confirmDelivery',
-        args: [id],
+        args: [id, ''],
     });
 
     const receipt = await publicClient.waitForTransactionReceipt({ hash: confirmHash });

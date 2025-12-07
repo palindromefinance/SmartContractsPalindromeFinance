@@ -419,7 +419,7 @@ test('createAndDepositEscrow creates + funds in one tx', async () => {
 test('deposit and delivery flow with proposal', async () => {
     const id = await setupDeal();
     await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'deposit', args: [id] });
-    await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'confirmDelivery', args: [id] });
+    await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'confirmDelivery', args: [id, ''] });
 
     const deal = await getDeal(id);
     assert.equal(deal.state, State.COMPLETE, 'State should be COMPLETE');
@@ -522,7 +522,7 @@ test('buyer or seller can start dispute only in AWAITING_DELIVERY', async () => 
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'confirmDelivery',
-        args: [id3]
+        args: [id3, '']
     });
 
     deal = await getDeal(id3);
@@ -586,7 +586,7 @@ test('meta transaction: signature replay is blocked by nonce', async () => {
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'confirmDeliverySigned',
-        args: [id, signature, deadline, nonce],
+        args: [id, signature, deadline, nonce, ''],
     });
 
     deal = await getDeal(id);
@@ -597,7 +597,7 @@ test('meta transaction: signature replay is blocked by nonce', async () => {
             address: escrowAddress,
             abi: escrowAbi,
             functionName: 'confirmDeliverySigned',
-            args: [id, signature, deadline, nonce],
+            args: [id, signature, deadline, nonce, ''],
         }),
     );
 });
@@ -643,7 +643,7 @@ test('meta transaction: invalid signature is rejected', async () => {
                 address: escrowAddress,
                 abi: escrowAbi,
                 functionName: 'confirmDeliverySigned',
-                args: [id, invalidSig, deadline, nonce],
+                args: [id, invalidSig, deadline, nonce, ''],
             }),
         (err: any) => {
             const msg = String(err?.message ?? '');
@@ -672,7 +672,7 @@ test('meta transaction: deadline too early is rejected', async () => {
                 address: escrowAddress,
                 abi: escrowAbi,
                 functionName: 'confirmDeliverySigned',
-                args: [id, signature, deadline, nonce],
+                args: [id, signature, deadline, nonce, ''],
             }),
         (err: any) => {
             const msg = String(err?.message ?? '');
@@ -900,7 +900,7 @@ test('refunded/canceled proposals have zero fee', async () => {
 test('escrow balance protection works after delivery completion', async () => {
     const id = await setupDeal();
     await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'deposit', args: [id] });
-    await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'confirmDelivery', args: [id] });
+    await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'confirmDelivery', args: [id, ''] });
 
     await assert.rejects(
         () =>
@@ -1029,7 +1029,7 @@ test('revert on emergency recovery before delay', async () => {
 test('revert on emergency execution in wrong state', async () => {
     const id = await setupDeal();
     await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'deposit', args: [id] });
-    await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'confirmDelivery', args: [id] });
+    await buyerClient.writeContract({ address: escrowAddress, abi: escrowAbi, functionName: 'confirmDelivery', args: [id, ''] });
 
     await assert.rejects(
         () => buyerClient.writeContract({

@@ -243,7 +243,7 @@ test('[DECIMALS-18] Full escrow flow with 18-decimal token (DAI/USDC-like)', asy
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'confirmDelivery',
-        args: [id],
+        args: [id, ''],
     });
 
     const receipt = await publicClient.waitForTransactionReceipt({ hash: confirmHash });
@@ -281,7 +281,7 @@ test('[DECIMALS-18] Minimum amount threshold for 18-decimal token', async () => 
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'confirmDelivery',
-        args: [id],
+        args: [id, ''],
     });
 
     const receipt = await publicClient.waitForTransactionReceipt({ hash: confirmHash });
@@ -350,7 +350,7 @@ test('[DECIMALS-18] Fee calculation with large amounts (precision test)', async 
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'confirmDelivery',
-        args: [id],
+        args: [id, ''],
     });
 
     const receipt = await publicClient.waitForTransactionReceipt({ hash: confirmHash });
@@ -406,7 +406,7 @@ test('[DECIMALS-8] Full escrow flow with 8-decimal token (WBTC-like)', async () 
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'confirmDelivery',
-        args: [id],
+        args: [id, ''],
     });
 
     const receipt = await publicClient.waitForTransactionReceipt({ hash: confirmHash });
@@ -444,7 +444,7 @@ test('[DECIMALS-8] Minimum amount threshold for 8-decimal token', async () => {
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'confirmDelivery',
-        args: [id],
+        args: [id, ''],
     });
 
     const receipt = await publicClient.waitForTransactionReceipt({ hash: confirmHash });
@@ -673,7 +673,7 @@ test('[ERROR] InvalidNonce error on nonce reuse', async () => {
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'confirmDeliverySigned',
-        args: [id, signature, deadline, nonce],
+        args: [id, signature, deadline, nonce, ''],
     });
 
     // Create new escrow for second attempt
@@ -710,7 +710,7 @@ test('[ERROR] InvalidNonce error on nonce reuse', async () => {
             address: escrowAddress,
             abi: escrowAbi,
             functionName: 'confirmDeliverySigned',
-            args: [id2, signature2, deadline, nonce], // Reusing nonce 0
+            args: [id2, signature2, deadline, nonce, ''], // Reusing nonce 0
         }),
         (err: any) => String(err?.shortMessage).includes('Internal error'),
         'Should reject with NotParticipant error'
@@ -784,7 +784,7 @@ test('[ERROR] SignatureAlreadyUsed error on signature replay', async () => {
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'confirmDeliverySigned',
-        args: [id, signature, deadline, nonce],
+        args: [id, signature, deadline, nonce, ''],
     });
 
     // Try replay - this will fail because signature hash is tracked
@@ -793,7 +793,7 @@ test('[ERROR] SignatureAlreadyUsed error on signature replay', async () => {
             address: escrowAddress,
             abi: escrowAbi,
             functionName: 'confirmDeliverySigned',
-            args: [id, signature, deadline, nonce],
+            args: [id, signature, deadline, nonce, ''],
         }),
         (err: any) => String(err?.shortMessage).includes('Internal error'),
         'Should reject with SignatureAlreadyUsed or state error'
@@ -987,7 +987,7 @@ test('[WALLET] Wallet retains funds after escrow completion', async () => {
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'confirmDelivery',
-        args: [id],
+        args: [id, ''],
     });
 
     // Verify wallet still holds funds (payout is proposed, not executed by escrow contract)
@@ -1093,21 +1093,21 @@ test('[CROSS-TOKEN] Fee calculations remain consistent across decimals', async (
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'confirmDelivery',
-        args: [id6],
+        args: [id6, ''],
     });
 
     const confirm8Hash = await buyerClient.writeContract({
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'confirmDelivery',
-        args: [id8],
+        args: [id8, ''],
     });
 
     const confirm18Hash = await buyerClient.writeContract({
         address: escrowAddress,
         abi: escrowAbi,
         functionName: 'confirmDelivery',
-        args: [id18],
+        args: [id18, ''],
     });
 
     // Parse fees from events
