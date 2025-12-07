@@ -14,6 +14,12 @@ function loadArtifact(path: string) {
 const EscrowArtifact = loadArtifact("./artifacts/contracts/PalindromeCryptoEscrow.sol/PalindromeCryptoEscrow.json");
 const USDTArtifact = loadArtifact("./artifacts/contracts/USDT.sol/USDT.json");
 
+const feeReceiver = process.env.FREE_RECEIVER?.trim()
+
+console.log("---------------------------------------")
+console.log(feeReceiver)
+console.log("---------------------------------------")
+
 // --- Setup clients ---
 const publicClient = createPublicClient({
     chain: hardhat,
@@ -50,14 +56,14 @@ async function main() {
     const usdtAddress = await deployContract(deployerClient, deployerAccount, {
         abi: USDTArtifact.abi,
         bytecode: USDTArtifact.bytecode as `0x${string}`,
-        args: ["Tether USD", "USDT", USDT_INITIAL_SUPPLY],
+        args: ["Tether USD", "USDT", USDT_INITIAL_SUPPLY, 6],
     });
 
     // --- Deploy Escrow contract, pass LP token + USDT token as constructor args ---
     const escrowAddress = await deployContract(deployerClient, deployerAccount, {
         abi: EscrowArtifact.abi,
         bytecode: EscrowArtifact.bytecode as `0x${string}`,
-        args: [usdtAddress],
+        args: [feeReceiver],
     });
 
     console.log(`USDT deployed to:             ${usdtAddress}`);

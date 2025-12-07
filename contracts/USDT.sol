@@ -10,7 +10,7 @@ contract USDT is ERC20 {
         string memory name,
         string memory symbol,
         uint256 initialSupply,
-        uint8 decimals_  // ← ADD THIS
+        uint8 decimals_ 
     ) ERC20(name, symbol) {
         _decimals = decimals_;
         _mint(msg.sender, initialSupply);

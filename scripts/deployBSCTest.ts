@@ -22,6 +22,7 @@ const USDTArtifact = loadArtifact("./artifacts/contracts/USDT.sol/USDT.json");
 const BSCTESTNET_RPC_URL = process.env.BSCTESTNET_RPC_URL?.trim();
 const BSCTESTNET_PRIVATE_KEY = process.env.OWNER_KEY?.trim();
 const USDT_ADDRESS = process.env.USDT_ADDRESS?.trim();
+const feeReceiver = process.env.FREE_RECEIVER?.trim()
 
 if (!BSCTESTNET_RPC_URL || !BSCTESTNET_PRIVATE_KEY) {
     throw new Error("Set BSCTESTNET_RPC_URL and OWNER_KEY in environment");
@@ -42,9 +43,6 @@ const publicClient = createPublicClient({
     transport: http(BSCTESTNET_RPC_URL),
 });
 const deployerAccount = privateKeyToAccount(privateKey);
-console.log('----------------------')
-console.log(deployerAccount)
-console.log('----------------------')
 const deployerClient = createWalletClient({
     chain: bscTestnet,
     transport: http(BSCTESTNET_RPC_URL),
@@ -62,7 +60,6 @@ async function deployContract(
         args,
     });
     const receipt = await publicClient.waitForTransactionReceipt({ hash });
-    console.log("Deployed at block:", receipt.blockNumber, "Address:", receipt.contractAddress);
     return { address: receipt.contractAddress as `0x${string}`, blockNumber: receipt.blockNumber };
 }
 
@@ -77,7 +74,6 @@ async function main() {
             args: ["Tether USD", "USDT", USDT_INITIAL_SUPPLY],
         });
         usdtAddress = usdt.address;
-        console.log("USDT deployed at:", usdtAddress);
     } else {
         console.log("Using existing USDT at:", usdtAddress);
     }
@@ -85,9 +81,11 @@ async function main() {
     const escrow = await deployContract(deployerClient, {
         abi: EscrowArtifact.abi,
         bytecode: EscrowArtifact.bytecode,
-        args: [usdtAddress],
+        args: [feeReceiver],
     });
     const escrowAddress = escrow.address;
+
+    console.log("USDT deployed at:", usdtAddress);
     console.log("PalindromeCryptoEscrow deployed at:", escrowAddress, escrow.blockNumber);
 }
 
