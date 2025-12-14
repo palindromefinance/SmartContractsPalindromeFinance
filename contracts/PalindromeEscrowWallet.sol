@@ -71,7 +71,6 @@ contract PalindromeEscrowWallet is ReentrancyGuard {
     );
     bytes32 private immutable DOMAIN_SEPARATOR;
 
-
     event SplitExecuted(
         uint256 indexed nonce,
         address indexed token,
