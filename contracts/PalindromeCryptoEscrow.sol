@@ -33,7 +33,6 @@ contract PalindromeCryptoEscrow is ReentrancyGuard {
     uint256 private constant _FEE_BPS = 100;
     uint256 private constant BPS_DENOMINATOR = 10_000;
     uint256 private constant MAX_STRING_LENGTH = 100;
-    uint256 public constant MIN_EVIDENCE_WINDOW = 3 days; 
     uint256 public constant DISPUTE_SHORT_TIMEOUT = 7 days;
     uint256 public constant DISPUTE_LONG_TIMEOUT = 30 days;
     uint256 public constant TIMEOUT_BUFFER = 1 hours;
@@ -129,7 +128,6 @@ contract PalindromeCryptoEscrow is ReentrancyGuard {
 
     event DisputeDeadlinesSet(
         uint256 indexed escrowId,
-        uint256 shortDeadline,
         uint256 longDeadline
     );
 
@@ -710,9 +708,8 @@ contract PalindromeCryptoEscrow is ReentrancyGuard {
 
         deal.state = State.DISPUTED;
         deal.disputeStartTime = block.timestamp;
-        uint256 shortDeadline = deal.disputeStartTime + DISPUTE_SHORT_TIMEOUT;
         uint256 longDeadline = deal.disputeStartTime + DISPUTE_LONG_TIMEOUT;
-        emit DisputeDeadlinesSet(escrowId, shortDeadline, longDeadline);
+        emit DisputeDeadlinesSet(escrowId, longDeadline);
         emit DisputeStarted(escrowId, msg.sender);
     }
 
@@ -778,11 +775,6 @@ contract PalindromeCryptoEscrow is ReentrancyGuard {
         bool longTimeout =
             block.timestamp >
             deal.disputeStartTime + DISPUTE_LONG_TIMEOUT + TIMEOUT_BUFFER;
-
-        require(
-            block.timestamp >= deal.disputeStartTime + MIN_EVIDENCE_WINDOW,
-            "Minimum evidence window not passed"
-        );
 
         require(fullEvidence || longTimeout, "Require full evidence or long timeout");
         require(!arbiterDecisionSubmitted[escrowId], "Already decided");
@@ -896,10 +888,8 @@ contract PalindromeCryptoEscrow is ReentrancyGuard {
 
         deal.state = State.DISPUTED;
         deal.disputeStartTime = block.timestamp;
-        uint256 shortDeadline = deal.disputeStartTime + DISPUTE_SHORT_TIMEOUT;
         uint256 longDeadline = deal.disputeStartTime + DISPUTE_LONG_TIMEOUT;
-        emit DisputeDeadlinesSet(escrowId, shortDeadline, longDeadline);
-
+        emit DisputeDeadlinesSet(escrowId, longDeadline);
         emit DisputeStarted(escrowId, signer);
     }
 }

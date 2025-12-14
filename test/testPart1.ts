@@ -18,7 +18,6 @@
  * │ Dispute Start        │ ✓ Buyer/Seller               │ ✓ Signed           │ ✓ Only participants         │ ✓ Wrong state                │ ✓ Non-participant reject     │                      │ 100%    │
  * │ Dispute Evidence     │ ✓ All roles submit           │                    │ ✓ Role checks (×3)          │ ✓ Duplicate (×3)             │ ✓ Random non-participant     │                      │ 100%    │
  * │ Dispute Resolve      │ ✓ Arbiter resolves           │                    │ ✓ Arbiter only              │ ✓ No evidence                │ ✓ Partial evidence           │ ✓ 7 & 30-day windows │ 100%    │
- * │ Emergency Recovery   │ ✓ Initiate + Execute         │                    │ ✓ Buyer/seller only         │ ✓ Before delay               │ ✓ Wrong state                │ ✓ Post-delay         │ 100%    │
  * │ Payout Proposal      │ ✓ In resolve/confirm         │                    │                             │ ✓ Small amount fee revert    │ ✓ No fee on refund           │                      │ 100%    │
  * │ Wallet Management    │ ✓ Wallet creation/deploy     │                    │                             │                              │ ✓ 2-of-3 threshold           │                      │ 100%    │
  * └──────────────────────┴──────────────────────────────┴────────────────────┴─────────────────────────────┴──────────────────────────────┴──────────────────────────────┴──────────────────────┴──────────┘
@@ -44,7 +43,6 @@
  * │ Signature Deadline         │ 1h window    │ 3 signed fn tests                    │
  * │ Dispute Short              │ 7 days       │ 2 tests (full evidence)              │
  * │ Dispute Long               │ 30 days      │ 2 tests (min evidence)               │
- * │ Emergency Recovery         │ 90 + 30 days │ Initiate + execute                   │
  * └────────────────────────────┴──────────────┴──────────────────────────────────────┘
  * 
  * =====================================================================================================================

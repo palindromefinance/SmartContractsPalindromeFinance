@@ -14,9 +14,6 @@ import {
     http,
     Address,
     Chain,
-    ContractFunctionExecutionError,
-    BaseError,
-    parseEventLogs
 } from 'viem';
 import { foundry } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
