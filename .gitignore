@@ -1,4 +1,5 @@
 # Hardhat coverage reports
+broadcast
 /coverage
 node_modules/
 artifacts/
