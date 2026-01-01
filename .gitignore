@@ -1,6 +1,7 @@
 # Hardhat coverage reports
-broadcast
-/coverage
+out/
+broadcast/
+coverage/
 node_modules/
 artifacts/
 cache/
