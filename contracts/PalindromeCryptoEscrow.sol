@@ -1018,6 +1018,8 @@ contract PalindromeCryptoEscrow is ReentrancyGuard {
      * @notice Cancels escrow after maturity time or grace period (called by buyer)
      * @dev If maturityTime is set, cancellation is allowed after maturityTime.
      *      If maturityTime is not set, cancellation is allowed after depositTime + GRACE_PERIOD.
+     *      If seller has accepted (signed) and no arbiter is set, timeout cancel is blocked
+     *      to prevent buyer from unilaterally canceling after seller commitment.
      * @param escrowId The escrow ID
      */
     function cancelByTimeout(uint256 escrowId)
@@ -1036,6 +1038,12 @@ contract PalindromeCryptoEscrow is ReentrancyGuard {
         require(deal.buyerCancelRequested, "Must request first");
         require(!deal.sellerCancelRequested, "Mutual cancel done");
         require(deal.depositTime != 0, "No deposit");
+
+        // If seller accepted AND no arbiter → block timeout cancel (forces mutual cancel)
+        // This protects sellers who have committed to the deal
+        if (deal.sellerWalletSig.length == 65 && deal.arbiter == address(0)) {
+            revert("Arbiter required for cancel after seller acceptance");
+        }
 
         // If maturityTime is set, use it directly; otherwise use depositTime + GRACE_PERIOD
         if (deal.maturityTime != 0) {
