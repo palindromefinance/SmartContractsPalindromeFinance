@@ -62,9 +62,6 @@ contract PalindromeCryptoEscrow is ReentrancyGuard {
     /// @notice Buffer time after dispute timeout before auto-resolution
     uint256 public constant TIMEOUT_BUFFER = 1 hours;
 
-    /// @notice Grace period after deposit before timeout cancellation allowed
-    uint256 public constant GRACE_PERIOD = 24 hours;
-
     // ---------------------------------------------------------------------
     // Structs
     // ---------------------------------------------------------------------
@@ -757,6 +754,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard {
         deal.arbiter = arbiter;
         deal.wallet = walletAddr;
         deal.amount = amount;
+        require(maturityTimeDays >= 1, "Min 1 day maturity");
         deal.maturityTime = block.timestamp + (maturityTimeDays * 1 days);
         deal.state = State.AWAITING_PAYMENT;
         deal.tokenDecimals = decimals;
@@ -830,6 +828,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard {
         deal.arbiter = arbiter;
         deal.wallet = walletAddr;
         deal.amount = amount;
+        require(maturityTimeDays >= 1, "Min 1 day maturity");
         deal.maturityTime = block.timestamp + (maturityTimeDays * 1 days);
         deal.state = State.AWAITING_PAYMENT;
         deal.tokenDecimals = decimals;
@@ -1019,9 +1018,8 @@ contract PalindromeCryptoEscrow is ReentrancyGuard {
     }
 
     /**
-     * @notice Cancels escrow after maturity time or grace period (called by buyer)
-     * @dev If maturityTime is set, cancellation is allowed after maturityTime.
-     *      If maturityTime is not set, cancellation is allowed after depositTime + GRACE_PERIOD.
+     * @notice Cancels escrow after maturity time (called by buyer)
+     * @dev Cancellation is allowed after maturityTime has passed.
      *      IMPORTANT: If no arbiter is set, timeout cancel is completely blocked.
      *      Without an arbiter, buyer must use mutual cancel (requestCancel) only.
      * @param escrowId The escrow ID
@@ -1046,12 +1044,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard {
         // No arbiter → block timeout cancel completely (only mutual cancel allowed)
         require(deal.arbiter != address(0), "Arbiter required for timeout cancel");
 
-        // If maturityTime is set, use it directly; otherwise use depositTime + GRACE_PERIOD
-        if (deal.maturityTime != 0) {
-            require(block.timestamp > deal.maturityTime, "Maturity not reached");
-        } else {
-            require(block.timestamp > deal.depositTime + GRACE_PERIOD, "Grace period active");
-        }
+        require(block.timestamp > deal.maturityTime, "Maturity not reached");
 
         require(deal.buyerWalletSig.length == 65, "Missing buyer sig");
 
@@ -1063,13 +1056,12 @@ contract PalindromeCryptoEscrow is ReentrancyGuard {
     }
 
     /**
-     * @notice Auto-releases funds to seller after maturity time or grace period if buyer hasn't confirmed
+     * @notice Auto-releases funds to seller after maturity time if buyer hasn't confirmed
      * @dev Seller can claim funds if:
      *      - Escrow is in AWAITING_DELIVERY state
      *      - No dispute has been started
      *      - Buyer has not requested cancellation
-     *      - If maturityTime is set: maturityTime has passed
-     *      - If maturityTime is not set: depositTime + GRACE_PERIOD has passed
+     *      - maturityTime has passed
      *      - Seller has provided wallet signature
      * @param escrowId The escrow ID
      */
@@ -1089,12 +1081,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard {
         require(!deal.buyerCancelRequested, "Buyer requested cancel");
         require(deal.depositTime != 0, "No deposit");
 
-        // If maturityTime is set, use it directly; otherwise use depositTime + GRACE_PERIOD
-        if (deal.maturityTime != 0) {
-            require(block.timestamp > deal.maturityTime, "Maturity not reached");
-        } else {
-            require(block.timestamp > deal.depositTime + GRACE_PERIOD, "Grace period active");
-        }
+        require(block.timestamp > deal.maturityTime, "Maturity not reached");
 
         require(deal.sellerWalletSig.length == 65, "Missing seller sig");
 
