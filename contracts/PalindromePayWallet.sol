@@ -6,7 +6,7 @@ import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
-interface IPalindromeCryptoEscrow {
+interface IPalindromePay {
     enum State {
         AWAITING_PAYMENT,
         AWAITING_DELIVERY,
@@ -44,8 +44,8 @@ interface IPalindromeCryptoEscrow {
 }
 
 /**
- * @title PalindromeEscrowWallet
- * @author Palindrome
+ * @title PalindromePayWallet
+ * @author Palindrome Pay
  * @notice 2-of-3 multisig wallet for escrow fund release
  * @dev Holds funds for a single escrow deal. Requires 2 of 3 participant
  *      signatures (buyer, seller, arbiter) to withdraw funds.
@@ -57,7 +57,7 @@ interface IPalindromeCryptoEscrow {
  *      - COMPLETE: seller receives funds minus 1% fee
  *      - REFUNDED/CANCELED: buyer receives full refund (no fee)
  */
-contract PalindromeEscrowWallet is ReentrancyGuard {
+contract PalindromePayWallet is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
     // ---------------------------------------------------------------------
@@ -191,7 +191,7 @@ contract PalindromeEscrowWallet is ReentrancyGuard {
         return keccak256(
             abi.encode(
                 EIP712_DOMAIN_TYPEHASH,
-                keccak256(bytes("PalindromeEscrowWallet")),
+                keccak256(bytes("PalindromePayWallet")),
                 keccak256(bytes("1")),
                 block.chainid,
                 address(this)
@@ -267,7 +267,7 @@ contract PalindromeEscrowWallet is ReentrancyGuard {
      * @return count Number of valid signatures (0-3)
      */
     function _countValidSignatures(
-        IPalindromeCryptoEscrow.EscrowDeal memory deal
+        IPalindromePay.EscrowDeal memory deal
     ) internal view returns (uint256 count) {
         if (_isValidSignature(deal.buyerWalletSig, deal.buyer)) {
             count++;
@@ -324,15 +324,15 @@ contract PalindromeEscrowWallet is ReentrancyGuard {
     function withdraw() external nonReentrant {
         if (withdrawn) revert AlreadyWithdrawn();
 
-        IPalindromeCryptoEscrow escrow = IPalindromeCryptoEscrow(escrowContract);
-        IPalindromeCryptoEscrow.EscrowDeal memory deal = escrow.getEscrow(escrowId);
+        IPalindromePay escrow = IPalindromePay(escrowContract);
+        IPalindromePay.EscrowDeal memory deal = escrow.getEscrow(escrowId);
 
         // Validate escrow is in final state
-        IPalindromeCryptoEscrow.State state = deal.state;
+        IPalindromePay.State state = deal.state;
         if (
-            state != IPalindromeCryptoEscrow.State.COMPLETE &&
-            state != IPalindromeCryptoEscrow.State.REFUNDED &&
-            state != IPalindromeCryptoEscrow.State.CANCELED
+            state != IPalindromePay.State.COMPLETE &&
+            state != IPalindromePay.State.REFUNDED &&
+            state != IPalindromePay.State.CANCELED
         ) {
             revert InvalidEscrowState();
         }
@@ -363,7 +363,7 @@ contract PalindromeEscrowWallet is ReentrancyGuard {
         uint256 netAmount;
         uint256 feeAmount;
 
-        if (state == IPalindromeCryptoEscrow.State.COMPLETE) {
+        if (state == IPalindromePay.State.COMPLETE) {
             // Seller receives payment minus fee
             recipient = deal.seller;
 
@@ -405,8 +405,8 @@ contract PalindromeEscrowWallet is ReentrancyGuard {
      * @return The token balance
      */
     function getBalance() external view returns (uint256) {
-        IPalindromeCryptoEscrow.EscrowDeal memory deal =
-            IPalindromeCryptoEscrow(escrowContract).getEscrow(escrowId);
+        IPalindromePay.EscrowDeal memory deal =
+            IPalindromePay(escrowContract).getEscrow(escrowId);
 
         if (deal.token == address(0)) return 0;
         return IERC20(deal.token).balanceOf(address(this));
@@ -438,8 +438,8 @@ contract PalindromeEscrowWallet is ReentrancyGuard {
      * @return count Number of valid signatures (0-3)
      */
     function getValidSignatureCount() external view returns (uint256 count) {
-        IPalindromeCryptoEscrow.EscrowDeal memory deal =
-            IPalindromeCryptoEscrow(escrowContract).getEscrow(escrowId);
+        IPalindromePay.EscrowDeal memory deal =
+            IPalindromePay(escrowContract).getEscrow(escrowId);
         return _countValidSignatures(deal);
     }
 
@@ -449,8 +449,8 @@ contract PalindromeEscrowWallet is ReentrancyGuard {
      * @return True if the participant's signature is valid
      */
     function isSignatureValid(address participant) external view returns (bool) {
-        IPalindromeCryptoEscrow.EscrowDeal memory deal =
-            IPalindromeCryptoEscrow(escrowContract).getEscrow(escrowId);
+        IPalindromePay.EscrowDeal memory deal =
+            IPalindromePay(escrowContract).getEscrow(escrowId);
 
         if (participant == deal.buyer) {
             return _isValidSignature(deal.buyerWalletSig, deal.buyer);

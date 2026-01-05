@@ -11,7 +11,7 @@ const DEPLOYER_KEY = "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804
 function loadArtifact(path: string) {
     return JSON.parse(readFileSync(path, "utf8"));
 }
-const EscrowArtifact = loadArtifact("./artifacts/contracts/PalindromeCryptoEscrow.sol/PalindromeCryptoEscrow.json");
+const EscrowArtifact = loadArtifact("./artifacts/contracts/PalindromePay.sol/PalindromePay.json");
 const USDTArtifact = loadArtifact("./artifacts/contracts/USDT.sol/USDT.json");
 
 const feeReceiver = process.env.FREE_RECEIVER?.trim()
@@ -66,8 +66,8 @@ async function main() {
         args: [feeReceiver],
     });
 
-    console.log(`USDT deployed to:             ${usdtAddress}`);
-    console.log(`PalindromeCryptoEscrow to:    ${escrowAddress}`);
+    console.log(`USDT deployed to:         ${usdtAddress}`);
+    console.log(`PalindromePay deployed to: ${escrowAddress}`);
 }
 
 main().catch((err) => {

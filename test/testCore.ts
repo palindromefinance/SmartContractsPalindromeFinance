@@ -1,5 +1,5 @@
 /**
- * PALINDROME CRYPTO ESCROW - FUNCTIONALITY TESTS
+ * PALINDROME PAY - FUNCTIONALITY TESTS
  *
  */
 
@@ -23,8 +23,8 @@ import { foundry } from 'viem/chains';
 import { privateKeyToAccount } from 'viem/accounts';
 import { getChainId } from 'viem/actions';
 
-import EscrowArtifact from '../artifacts/contracts/PalindromeCryptoEscrow.sol/PalindromeCryptoEscrow.json' with { type: 'json' };
-import WalletArtifact from '../artifacts/contracts/PalindromeEscrowWallet.sol/PalindromeEscrowWallet.json' with { type: 'json' };
+import EscrowArtifact from '../artifacts/contracts/PalindromePay.sol/PalindromePay.json' with { type: 'json' };
+import WalletArtifact from '../artifacts/contracts/PalindromePayWallet.sol/PalindromePayWallet.json' with { type: 'json' };
 import USDTArtifact from '../artifacts/contracts/USDT.sol/USDT.json' with { type: 'json' };
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -133,7 +133,7 @@ before(async () => {
  */
 function getWalletDomain(walletAddress: Address) {
     return {
-        name: 'PalindromeEscrowWallet',
+        name: 'PalindromePayWallet',
         version: '1',
         chainId,
         verifyingContract: walletAddress,
@@ -145,7 +145,7 @@ function getWalletDomain(walletAddress: Address) {
  */
 function getEscrowDomain() {
     return {
-        name: 'PalindromeCryptoEscrow',
+        name: 'PalindromePay',
         version: '1',
         chainId,
         verifyingContract: escrowAddress,

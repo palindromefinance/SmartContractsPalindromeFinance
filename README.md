@@ -1,12 +1,12 @@
-# Crypto Pay & Escrow by Palindrome Finance
+# Crypto Pay & Escrow by Palindrome Pay
 
-**Palindrome Finance** is a **secure crypto payment protocol with built-in multisig-escrow**, engineered for **trustless, protected digital transactions**.
+**Palindrome Pay** is a **secure crypto payment protocol with built-in multisig-escrow**, engineered for **trustless, protected digital transactions**.
 
 Our **smart contract escrow system** ensures funds are released only when conditions are met — eliminating chargebacks, counterparty risk, and fraud.
 
-Compared to traditional escrow services and payment gateways, Palindrome Finance offers lower fees, instant settlement, and complete transparency through on-chain verification.
+Compared to traditional escrow services and payment gateways, Palindrome Pay offers lower fees, instant settlement, and complete transparency through on-chain verification.
 
-[www.palindromefinance.com](https://www.palindromefinance.com)
+[www.palindromepay.com](https://www.palindromepay.com)
 
 ---
 
@@ -14,8 +14,8 @@ Compared to traditional escrow services and payment gateways, Palindrome Finance
 
 ```bash
 # 1. Clone and install
-git clone https://github.com/yourusername/PalindromeCryptoEscrow.git
-cd PalindromeCryptoEscrow
+git clone https://github.com/yourusername/PalindromePay.git
+cd PalindromePay
 npm install
 
 # 2. Compile

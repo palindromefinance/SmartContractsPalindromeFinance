@@ -7,17 +7,17 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/extensions/IERC20Metadata.sol";
 
-import "./PalindromeEscrowWallet.sol";
+import "./PalindromePayWallet.sol";
 
 /**
- * @title PalindromeCryptoEscrow
- * @author Palindrome Finance
+ * @title PalindromePay
+ * @author Palindrome Pay
  * @notice Trustless escrow for ERC20 token transactions with dispute resolution
  * @dev Creates individual wallet contracts for each escrow using CREATE2.
  *      Supports buyer/seller cancellation, arbiter-based dispute resolution,
  *      and gasless operations via EIP-712 signatures.
  */
-contract PalindromeCryptoEscrow is ReentrancyGuard {
+contract PalindromePay is ReentrancyGuard {
     using ECDSA for bytes32;
     using SafeERC20 for IERC20;
 
@@ -415,7 +415,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard {
         INITIAL_DOMAIN_SEPARATOR = _computeDomainSeparator();
 
         WALLET_BYTECODE_HASH = keccak256(
-            type(PalindromeEscrowWallet).creationCode
+            type(PalindromePayWallet).creationCode
         );
     }
 
@@ -580,7 +580,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard {
         return keccak256(
             abi.encode(
                 EIP712_DOMAIN_TYPEHASH,
-                keccak256(bytes("PalindromeCryptoEscrow")),
+                keccak256(bytes("PalindromePay")),
                 keccak256(bytes("1")),
                 block.chainid,
                 address(this)
@@ -685,7 +685,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard {
         bytes32 salt = keccak256(abi.encodePacked(escrowId));
 
         bytes memory bytecode = abi.encodePacked(
-            type(PalindromeEscrowWallet).creationCode,
+            type(PalindromePayWallet).creationCode,
             abi.encode(address(this), escrowId)
         );
 
@@ -1395,7 +1395,7 @@ contract PalindromeCryptoEscrow is ReentrancyGuard {
         bytes32 walletDomainSeparator = keccak256(
             abi.encode(
                 EIP712_DOMAIN_TYPEHASH,
-                keccak256(bytes("PalindromeEscrowWallet")),
+                keccak256(bytes("PalindromePayWallet")),
                 keccak256(bytes("1")),
                 block.chainid,
                 deal.wallet
