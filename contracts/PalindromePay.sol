@@ -93,9 +93,6 @@ contract PalindromePay is ReentrancyGuard {
     /// @notice Address receiving platform fees
     address public immutable FEE_RECEIVER;
 
-    /// @notice Keccak256 hash of wallet contract bytecode for CREATE2
-    bytes32 public immutable WALLET_BYTECODE_HASH;
-
     /// @dev Cached EIP-712 domain separator at deployment
     bytes32 private immutable INITIAL_DOMAIN_SEPARATOR;
 
@@ -453,10 +450,6 @@ contract PalindromePay is ReentrancyGuard {
 
         INITIAL_CHAIN_ID = block.chainid;
         INITIAL_DOMAIN_SEPARATOR = _computeDomainSeparator();
-
-        WALLET_BYTECODE_HASH = keccak256(
-            type(PalindromePayWallet).creationCode
-        );
     }
 
     // ---------------------------------------------------------------------
