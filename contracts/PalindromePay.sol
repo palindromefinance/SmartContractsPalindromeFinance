@@ -475,6 +475,13 @@ contract PalindromePay is ReentrancyGuard {
         return escrows[escrowId];
     }
 
+    /// @notice Computes wallet address for a given escrow ID (before deployment)
+    /// @param escrowId The escrow ID used as salt
+    /// @return predicted The predicted wallet contract address
+    function computeWalletAddress(uint256 escrowId) external view returns (address predicted) {
+        return _predictWalletAddress(escrowId);
+    }
+
     /// @dev Retrieves and validates token decimals
     /// @param token The ERC20 token address
     /// @return The token's decimal places (must be 6-18)
