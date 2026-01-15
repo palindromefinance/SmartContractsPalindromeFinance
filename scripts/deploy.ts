@@ -20,6 +20,9 @@
  *   # Deploy without verification
  *   npx ts-node scripts/deploy.ts base-test --no-verify
  *
+ *   # Deploy with Trezor hardware wallet (via Frame)
+ *   npx ts-node scripts/deploy.ts eth --trezor
+ *
  *   # Combine options
  *   npx ts-node scripts/deploy.ts bsc-test --escrow-only --no-verify
  *
@@ -33,7 +36,7 @@
  *   bsc         - BSC Mainnet
  *
  * Required Environment Variables:
- *   OWNER_KEY            - Deployer private key (not needed for local)
+ *   OWNER_KEY            - Deployer private key (not needed for local or --trezor)
  *   FREE_RECEIVER        - Fee receiver address (not needed for local)
  *   ETH_SEPOLIA_RPC_URL  - Ethereum Sepolia RPC URL
  *   ETH_RPC_URL          - Ethereum Mainnet RPC URL
@@ -42,6 +45,10 @@
  *   BSC_RPC_URL          - BSC Mainnet RPC URL
  *   BASE_RPC_URL         - Base Mainnet RPC URL
  *   ETHERSCAN_API_KEY    - Etherscan V2 API key (works for all chains)
+ *
+ * Hardware Wallet (Trezor):
+ *   Requires Frame wallet (https://frame.sh) running with Trezor connected.
+ *   Frame exposes a local RPC at http://127.0.0.1:1248
  */
 
 import * as dotenv from "dotenv";
@@ -56,6 +63,7 @@ import {
     type Chain,
     type Account,
     type Hex,
+    type Transport,
 } from "viem";
 import { bscTestnet, baseSepolia, bsc, base, hardhat, sepolia, mainnet } from "viem/chains";
 import { privateKeyToAccount } from "viem/accounts";
@@ -68,6 +76,9 @@ import { execSync } from "child_process";
 
 // Local hardhat default private key (account #2)
 const LOCAL_DEPLOYER_KEY = "0x5de4111afa1a4b94908f83103eb1f1706367c2e68ca870fc3fb9a804cdab365a";
+
+// Frame wallet RPC (for Trezor/Ledger hardware wallets)
+const FRAME_RPC_URL = "http://127.0.0.1:1248";
 
 interface NetworkConfig {
     chain: Chain;
@@ -185,6 +196,7 @@ Options:
   --usdt-only    - Deploy only USDT (skip PalindromePay)
   --no-verify    - Skip contract verification
   --with-usdt    - Deploy test USDT token (default for testnets/local)
+  --trezor       - Use Trezor via Frame wallet (requires Frame running)
 
 Examples:
   npx ts-node scripts/deploy.ts local                             # Local: USDT + Escrow
@@ -195,6 +207,7 @@ Examples:
   npx ts-node scripts/deploy.ts base-test --escrow-only           # Deploy only Escrow
   npx ts-node scripts/deploy.ts bsc-test --no-verify              # Deploy without verification
   npx ts-node scripts/deploy.ts base-test --escrow-only --no-verify
+  npx ts-node scripts/deploy.ts eth --trezor                      # Deploy with Trezor via Frame
 `);
 }
 
@@ -205,7 +218,6 @@ Examples:
 async function deployContract(
     publicClient: PublicClient,
     walletClient: WalletClient,
-    account: Account,
     chain: Chain,
     { abi, bytecode, args = [] }: { abi: any; bytecode: Hex; args?: any[] }
 ): Promise<{ address: Hex; blockNumber: bigint; txHash: Hex }> {
@@ -215,7 +227,6 @@ async function deployContract(
         abi,
         bytecode,
         args,
-        account,
         chain,
     });
 
@@ -304,6 +315,7 @@ async function main() {
     const usdtOnly = args.includes("--usdt-only");
     const skipVerify = args.includes("--no-verify");
     const withUsdt = args.includes("--with-usdt");
+    const useTrezor = args.includes("--trezor");
 
     // Validate network
     const network = NETWORKS[networkName];
@@ -339,6 +351,7 @@ async function main() {
     console.log(`  Deploy USDT:  ${deployUsdt ? "Yes" : "No"}`);
     console.log(`  Deploy Escrow: ${deployEscrow ? "Yes" : "No"}`);
     console.log(`  Verify:       ${shouldSkipVerify ? "No" : "Yes"}`);
+    console.log(`  Signer:       ${useTrezor ? "Trezor (Frame)" : "Private Key"}`);
     console.log("========================================\n");
 
     // Load artifacts
@@ -349,34 +362,74 @@ async function main() {
         "./artifacts/contracts/USDT.sol/USDT.json"
     );
 
-    // Setup accounts - use local key for local network
-    const privateKey = network.isLocal
-        ? (network.localPrivateKey as Hex)
-        : validateHexKey(process.env.OWNER_KEY, "OWNER_KEY");
+    let deployerAddress: Hex;
+    let walletClient: WalletClient<Transport, Chain, Account | undefined>;
+    let publicClient: PublicClient;
+
+    if (useTrezor) {
+        // Use Frame wallet for Trezor signing
+        console.log(`${colors.yellow}Connecting to Frame wallet...${colors.reset}`);
+        console.log(`Make sure Frame is running with Trezor connected.\n`);
+
+        // Create Frame transport
+        const frameTransport = http(FRAME_RPC_URL);
+
+        // Get accounts from Frame
+        const tempClient = createWalletClient({
+            chain: network.chain,
+            transport: frameTransport,
+        });
+
+        const accounts = await tempClient.getAddresses();
+        if (accounts.length === 0) {
+            throw new Error("No accounts found in Frame. Make sure Trezor is connected and unlocked.");
+        }
+
+        deployerAddress = accounts[0];
+        console.log(`${colors.green}Connected to Trezor via Frame${colors.reset}`);
+
+        // Create clients - use network RPC for reads, Frame for signing
+        publicClient = createPublicClient({
+            chain: network.chain,
+            transport: http(network.rpcUrl),
+        });
+
+        walletClient = createWalletClient({
+            chain: network.chain,
+            transport: frameTransport,
+            account: deployerAddress,
+        }) as WalletClient<Transport, Chain, Account | undefined>;
+    } else {
+        // Use private key
+        const privateKey = network.isLocal
+            ? (network.localPrivateKey as Hex)
+            : validateHexKey(process.env.OWNER_KEY, "OWNER_KEY");
+
+        const deployerAccount = privateKeyToAccount(privateKey);
+        deployerAddress = deployerAccount.address;
+
+        publicClient = createPublicClient({
+            chain: network.chain,
+            transport: http(network.rpcUrl),
+        });
+
+        walletClient = createWalletClient({
+            chain: network.chain,
+            transport: http(network.rpcUrl),
+            account: deployerAccount,
+        }) as WalletClient<Transport, Chain, Account | undefined>;
+    }
 
     // For local network, use deployer as fee receiver if not set
     const feeReceiver = network.isLocal && !process.env.FREE_RECEIVER
-        ? privateKeyToAccount(privateKey).address
+        ? deployerAddress
         : validateAddress(process.env.FREE_RECEIVER, "FREE_RECEIVER");
 
-    const deployerAccount = privateKeyToAccount(privateKey);
-    console.log(`Deployer:     ${deployerAccount.address}`);
+    console.log(`Deployer:     ${deployerAddress}`);
     console.log(`Fee Receiver: ${feeReceiver}\n`);
 
-    // Setup clients
-    const publicClient = createPublicClient({
-        chain: network.chain,
-        transport: http(network.rpcUrl),
-    });
-
-    const walletClient = createWalletClient({
-        chain: network.chain,
-        transport: http(network.rpcUrl),
-        account: deployerAccount,
-    });
-
     // Check deployer balance
-    const balance = await publicClient.getBalance({ address: deployerAccount.address });
+    const balance = await publicClient.getBalance({ address: deployerAddress });
     const balanceFormatted = (Number(balance) / 1e18).toFixed(4);
     console.log(`Balance:      ${balanceFormatted} ${network.chain.nativeCurrency.symbol}\n`);
 
@@ -397,7 +450,6 @@ async function main() {
         const usdt = await deployContract(
             publicClient,
             walletClient,
-            deployerAccount,
             network.chain,
             {
                 abi: USDTArtifact.abi,
@@ -429,7 +481,6 @@ async function main() {
         const escrow = await deployContract(
             publicClient,
             walletClient,
-            deployerAccount,
             network.chain,
             {
                 abi: PalindromePayArtifact.abi,
