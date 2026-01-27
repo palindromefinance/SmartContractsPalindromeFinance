@@ -223,11 +223,17 @@ async function deployContract(
 ): Promise<{ address: Hex; blockNumber: bigint; txHash: Hex }> {
     console.log("  Deploying contract...");
 
+    const account = walletClient.account;
+    if (!account) {
+        throw new Error("Wallet client has no account configured");
+    }
+
     const hash = await walletClient.deployContract({
         abi,
         bytecode,
         args,
         chain,
+        account,
     });
 
     console.log(`  Transaction hash: ${hash}`);
